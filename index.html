@@ -30,6 +30,14 @@
     .brand-mark { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800; letter-spacing: -.04em; background: linear-gradient(145deg, #1266dc, #0b3e9c); box-shadow: 0 8px 20px rgba(23, 92, 211, .24); }
     h1 { font-size: 19px; line-height: 1.2; margin: 0 0 4px; }
     .subtitle { margin: 0; color: var(--muted); font-size: 12px; }
+    .pb-user { display: flex; align-items: center; gap: 9px; margin: 4px 0 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #f7faff; }
+    .pb-user[hidden] { display: none; }
+    .pb-user img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: #e2ebf5; flex: 0 0 auto; }
+    .pb-user .pb-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+    .pb-user .pb-name { font-size: 12.5px; font-weight: 700; color: #2b3a52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pb-user .pb-plan { font-size: 10.5px; color: #708096; }
+    .pb-user button { margin-left: auto; border: 0; background: transparent; color: var(--blue); font-size: 12px; cursor: pointer; flex: 0 0 auto; }
+    .pb-user button:hover { text-decoration: underline; }
     .section { padding: 16px 0; border-top: 1px solid var(--line); }
     .section-title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 11px; font-size: 12px; font-weight: 750; color: #41516a; letter-spacing: .08em; text-transform: uppercase; }
     .field { display: grid; gap: 6px; margin-top: 11px; }
@@ -215,6 +223,11 @@
       <div class="brand">
         <div class="brand-mark">3D</div>
         <div><h1>中包动态排列工具</h1><p class="subtitle">单粒形态 · 组合阵列 · 多角度查看</p></div>
+      </div>
+      <div class="pb-user" id="pbUser" hidden>
+        <img id="pbAvatar" alt="" hidden>
+        <span class="pb-user-text"><span class="pb-name" id="pbName"></span><span class="pb-plan" id="pbPlan"></span></span>
+        <button id="pbLogout" type="button">退出</button>
       </div>
 
       <section class="section" id="productContext">
@@ -517,10 +530,46 @@
     const OUTER_PRESET_STORAGE_KEY = 'vida-outer-presets-v1';
     const PRODUCT_SIZE_STORAGE_KEY = 'vida-product-size-overrides-v1';
 
+    // —— PocketBay 用户系统接入 ——
+    // 网关已完成登录；通过同源 GET /.pocketbay/user 获取当前用户。
+    // 业务数据只能使用网关返回的 user.id 归属，绝不使用昵称 / 查询参数 / 本地自造 ID。
+    let pocketbayIdentity = null;   // { authenticated:true, user:{id,name,avatar_url}, plan, client_id } 或 null（未登录 / 本地开发）
+    async function resolvePocketBayIdentity() {
+      try {
+        const response = await fetch('/.pocketbay/user', { credentials: 'same-origin', cache: 'no-store' });
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data && data.authenticated ? data : null;
+      } catch (error) {
+        // 本地开发无网关注入：保持匿名，工具照常可用（数据均存浏览器本地，不跨用户）。
+        console.info('PocketBay 用户入口不可用，按本地匿名模式运行。', error && error.message ? error.message : error);
+        return null;
+      }
+    }
+    function pbUserId() { return pocketbayIdentity ? pocketbayIdentity.user.id : null; }
+    // 已登录时用 user.id 隔离每用户数据；未登录 / 本地开发回落到原始键（与历史数据兼容）。
+    function scopedKey(base) { const id = pbUserId(); return id ? base + ':' + id : base; }
+    function renderPocketBayUser() {
+      const box = $('pbUser');
+      if (!box) return;
+      if (!pocketbayIdentity || !pocketbayIdentity.user) { box.hidden = true; return; }
+      const u = pocketbayIdentity.user;
+      $('pbName').textContent = u.name || 'PocketBay 用户';
+      $('pbPlan').textContent = 'PocketBay · ' + (pocketbayIdentity.plan || 'free');
+      const avatar = $('pbAvatar');
+      if (u.avatar_url) { avatar.src = u.avatar_url; avatar.hidden = false; } else { avatar.hidden = true; }
+      box.hidden = false;
+      const logout = $('pbLogout');
+      if (logout) logout.onclick = async () => {
+        try { await fetch('/.pocketbay/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+        location.href = '/';
+      };
+    }
+
     // 产品小粒尺寸覆盖（独立于 catalog，不直接修改 catalog[type].dimensions，避免恢复默认/JSON 导入/历史方案复现混乱）。
     function loadProductSizeOverrides() {
       try {
-        const value = JSON.parse(localStorage.getItem(PRODUCT_SIZE_STORAGE_KEY) || '{}');
+        const value = JSON.parse(localStorage.getItem(scopedKey(PRODUCT_SIZE_STORAGE_KEY)) || '{}');
         return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
       } catch (error) {
         console.warn('小粒尺寸存储读取失败，已使用空存储。', error);
@@ -528,10 +577,10 @@
       }
     }
 
-    let productSizeOverrides = loadProductSizeOverrides();
+    let productSizeOverrides = null;   // 在 initApp 中按用户身份加载
 
     function persistProductSizeOverrides() {
-      localStorage.setItem(PRODUCT_SIZE_STORAGE_KEY, JSON.stringify(productSizeOverrides));
+      localStorage.setItem(scopedKey(PRODUCT_SIZE_STORAGE_KEY), JSON.stringify(productSizeOverrides));
     }
 
     function defaultSizeForCurrentProduct(type = ui.category.value) {
@@ -552,7 +601,7 @@
 
     function loadOuterPresetStore() {
       try {
-        const value = JSON.parse(localStorage.getItem(OUTER_PRESET_STORAGE_KEY) || '{}');
+        const value = JSON.parse(localStorage.getItem(scopedKey(OUTER_PRESET_STORAGE_KEY)) || '{}');
         return value && typeof value === 'object' ? value : {};
       } catch (error) {
         console.warn('外包装方案存储读取失败，已使用空存储。', error);
@@ -560,7 +609,7 @@
       }
     }
 
-    let outerPresetStore = loadOuterPresetStore();
+    let outerPresetStore = null;   // 在 initApp 中按用户身份加载
 
     function outerPresetBucket(level) {
       if (!['bigpack','case'].includes(level)) return {custom:[]};
@@ -572,7 +621,7 @@
     }
 
     function persistOuterPresetStore() {
-      localStorage.setItem(OUTER_PRESET_STORAGE_KEY, JSON.stringify(outerPresetStore));
+      localStorage.setItem(scopedKey(OUTER_PRESET_STORAGE_KEY), JSON.stringify(outerPresetStore));
     }
 
     function getOuterPresetList(level) {
@@ -596,7 +645,7 @@
 
     function loadPresetStore() {
       try {
-        const value = JSON.parse(localStorage.getItem(PRESET_STORAGE_KEY) || '{}');
+        const value = JSON.parse(localStorage.getItem(scopedKey(PRESET_STORAGE_KEY)) || '{}');
         return value && typeof value === 'object' ? value : {};
       } catch (error) {
         console.warn('预设存储读取失败，已使用空存储。', error);
@@ -604,7 +653,7 @@
       }
     }
 
-    let presetStore = loadPresetStore();
+    let presetStore = null;   // 在 initApp 中按用户身份加载
 
     function presetBucket(type) {
       const current = presetStore[type];
@@ -616,7 +665,7 @@
     }
 
     function persistPresetStore() {
-      localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presetStore));
+      localStorage.setItem(scopedKey(PRESET_STORAGE_KEY), JSON.stringify(presetStore));
     }
 
     function getPresetList(type) {
@@ -708,8 +757,7 @@
       // Orbit 默认方向在屏幕上表现为模型跟随鼠标；负值切换为相机环绕方向。
       controls.rotateSpeed=direction==='model'?.48:-.48;
     }
-    ui.rotationDirection.value=localStorage.getItem(ROTATION_DIRECTION_KEY)==='camera'?'camera':'model';
-    applyRotationDirection();
+    // 旋转方向偏好按用户隔离，延后到 initApp 中加载（见文件末尾 initApp）。
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x8fa4b8, 2.1));
     const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(5, 10, 8); key.castShadow = true; key.shadow.mapSize.set(2048,2048); scene.add(key);
@@ -4580,7 +4628,7 @@
     ui.handleSide.addEventListener('change', () => { markPresetDirty(); syncProductRuleUi(); rebuild(true); });
     ui.rotationDirection.addEventListener('change',()=>{
       applyRotationDirection();
-      localStorage.setItem(ROTATION_DIRECTION_KEY,ui.rotationDirection.value);
+      localStorage.setItem(scopedKey(ROTATION_DIRECTION_KEY),ui.rotationDirection.value);
     });
     $('savePresetBtn').addEventListener('click', saveCurrentPreset);
     $('saveAsPresetBtn').addEventListener('click', saveAsPreset);
@@ -4892,7 +4940,18 @@
       }
       controls.update(); renderer.render(scene,camera);
     }
-    populatePresets(); resize(); setPerspectiveInstant(); requestAnimationFrame(animate);
+    // 启动：先解析 PocketBay 用户身份，再按用户隔离加载本地数据，最后渲染界面。
+    async function initApp() {
+      pocketbayIdentity = await resolvePocketBayIdentity();
+      productSizeOverrides = loadProductSizeOverrides();
+      outerPresetStore = loadOuterPresetStore();
+      presetStore = loadPresetStore();
+      ui.rotationDirection.value = localStorage.getItem(scopedKey(ROTATION_DIRECTION_KEY)) === 'camera' ? 'camera' : 'model';
+      applyRotationDirection();
+      renderPocketBayUser();
+      populatePresets(); resize(); setPerspectiveInstant(); requestAnimationFrame(animate);
+    }
+    initApp();
   </script>
 </body>
 </html>
