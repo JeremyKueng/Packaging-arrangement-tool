@@ -18,10 +18,11 @@
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
-    body { margin: 0; color: var(--ink); background: var(--bg); overflow: hidden; }
+    html { height: 100%; }
+    body { margin: 0; color: var(--ink); background: var(--bg); overflow: hidden; height: 100%; }
     button, input, select { font: inherit; }
     button { cursor: pointer; }
-    .app { height: 100vh; display: grid; grid-template-columns: 330px minmax(0, 1fr); }
+    .app { height: 100%; display: grid; grid-template-columns: 330px minmax(0, 1fr); }
     .sidebar {
       position: relative; z-index: 3; overflow: auto; padding: 22px 20px 28px;
       background: var(--panel); border-right: 1px solid var(--line); box-shadow: 8px 0 28px rgba(26, 46, 72, .07);
@@ -4940,9 +4941,8 @@
       }
       controls.update(); renderer.render(scene,camera);
     }
-    // 启动：先解析 PocketBay 用户身份，再按用户隔离加载本地数据，最后渲染界面。
-    async function initApp() {
-      pocketbayIdentity = await resolvePocketBayIdentity();
+    // 启动：先立即渲染界面（不阻塞），再后台解析 PocketBay 身份并切换到 user.id 隔离数据。
+    function bootstrapUI() {
       productSizeOverrides = loadProductSizeOverrides();
       outerPresetStore = loadOuterPresetStore();
       presetStore = loadPresetStore();
@@ -4951,7 +4951,32 @@
       renderPocketBayUser();
       populatePresets(); resize(); setPerspectiveInstant(); requestAnimationFrame(animate);
     }
+    async function initApp() {
+      bootstrapUI();                                  // 立即可用，不再等网关身份接口
+      pocketbayIdentity = await resolvePocketBayIdentity();
+      if (pocketbayIdentity) {                        // 身份解析成功：按 user.id 重新加载隔离数据
+        productSizeOverrides = loadProductSizeOverrides();
+        outerPresetStore = loadOuterPresetStore();
+        presetStore = loadPresetStore();
+        renderPocketBayUser();
+        populatePresets();
+      }
+    }
     initApp();
+    // 防御：PocketBay 注入的启动遮罩/顶部横幅可能拦截交互（横幅自带关闭按钮有 id 不匹配的 bug，关不掉），
+    // 加载后强制移除，确保本工具内容始终可选可点。
+    function neutralizePbOverlays() {
+      try {
+        const s = document.getElementById('pb-host-splash');
+        if (s) { s.style.pointerEvents = 'none'; s.style.opacity = '0'; s.remove(); }
+      } catch (e) {}
+      try {
+        const b = document.getElementById('pb-host-banner');
+        if (b) { b.remove(); document.body.style.paddingTop = ''; }
+      } catch (e) {}
+    }
+    neutralizePbOverlays();
+    window.addEventListener('load', neutralizePbOverlays);
   </script>
 </body>
 </html>
