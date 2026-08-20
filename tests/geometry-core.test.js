@@ -12,6 +12,7 @@ import {
   unitOrientationDescription,
   unitOrientationQuaternion,
   productOrientationQuaternion,
+  directSpinQuaternion,
   rotatedSize,
   formatXzySize,
   rollUnitDims,
@@ -46,9 +47,10 @@ test('rollUnitDims 卫卷三朝向（圆柱轴方向）', () => {
   closeVec(rollUnitDims('lying'), [1.0, 1.0, 1.15]);
 });
 
-test('dimsFor 卫卷膜包余量计算', () => {
-  closeVec(dimsFor('roll', 'upright', 'z-', { count: 4, x: 2, z: 2, y: 1 }), [2.08, 1.23, 2.08]);
-  closeVec(dimsFor('roll', 'upright', 'z-', { count: 6, x: 2, z: 3, y: 1 }), [2.08, 1.23, 3.08]);
+test('dimsFor 卫卷膜包余量计算（2×1×N 贴合收缩膜口径）', () => {
+  closeVec(dimsFor('roll', 'upright', 'z-', { count: 4, x: 2, z: 1, y: 2 }), [2.03, 2.33, 1.03]);
+  closeVec(dimsFor('roll', 'upright', 'z-', { count: 6, x: 2, z: 1, y: 3 }), [2.03, 3.48, 1.03]);
+  closeVec(dimsFor('roll', 'upright', 'z-', { count: 2, x: 2, z: 1, y: 1 }), [2.03, 1.18, 1.03]);
   closeVec(dimsFor('roll', 'upright', 'z-', { count: 1 }), [1.0, 1.15, 1.0]);
 });
 
@@ -69,13 +71,15 @@ test('dimsFor 自定义卫卷尺寸（含膜包）', () => {
   const override = { enabled: true, diameterMm: 200, axialWidthMm: 100 };
   closeVec(dimsFor('roll', 'upright', 'z-', { count: 1 }, override), [2.0, 1.0, 2.0]);
   closeVec(dimsFor('roll', 'horizontal', 'z-', { count: 1 }, override), [1.0, 2.0, 2.0]);
-  // 4 卷膜包（2×2×1）：X/Z 各 2 卷 + 膜余量 0.08；Y 单层 + 膜余量 0.08。
-  closeVec(dimsFor('roll', 'upright', 'z-', { count: 4, x: 2, z: 2, y: 1 }, override), [4.08, 1.08, 4.08]);
+  // 4 卷膜包（2×1×2）：X 并列 2 卷 + 膜余量；Y 叠 2 层 + 膜余量；Z 单排 + 膜余量。
+  closeVec(dimsFor('roll', 'upright', 'z-', { count: 4, x: 2, z: 1, y: 2 }, override), [4.03, 2.03, 2.03]);
 });
 
 test('无芯卫卷按压扁率形成椭圆且短轴始终为受压高度', () => {
   const override = { enabled:true, diameterMm:100, axialWidthMm:115, coreDiameterMm:40, flattenRatePct:20 };
-  closeVec(rollUnitDims('upright',override,'coreless'),[1.25,1.15,.8]);
+  // 直立：长轴（凸面）沿提手端轴向；提手端默认 z- → 长轴沿 Z、短轴沿 X。
+  closeVec(rollUnitDims('upright',override,'coreless'),[.8,1.15,1.25]);
+  closeVec(rollUnitDims('upright',override,'coreless','x-'),[1.25,1.15,.8]);
   closeVec(rollUnitDims('horizontal',override,'coreless'),[1.15,.8,1.25]);
   closeVec(rollUnitDims('lying',override,'coreless'),[1.25,.8,1.15]);
   closeVec(dimsFor('roll','horizontal','z-',{count:1},override,'coreless'),[1.15,.8,1.25]);
@@ -144,6 +148,23 @@ test('rotatedSize 恒等与绕 Y 轴 90°', () => {
   closeVec(rotatedSize([1.8, 0.56, 1.08], identity), [1.8, 0.56, 1.08]);
   const rotY90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   closeVec(rotatedSize([1.8, 0.56, 1.08], rotY90), [1.08, 0.56, 1.8]);
+});
+
+test('directSpinQuaternion 覆盖 0/90/180/270 四个朝向', () => {
+  const base = new THREE.Vector3(0, 0, -1); // 例如软抽直立后的开口刻线外向
+  const dir = spin => base.clone().applyQuaternion(directSpinQuaternion(spin));
+  const axisOf = v => {
+    const ax = Math.abs(v.x) > Math.abs(v.z) ? 'x' : 'z';
+    return ax + ((ax === 'x' ? v.x : v.z) >= 0 ? '+' : '-');
+  };
+  assert.equal(axisOf(dir('none')), 'z-');
+  assert.equal(axisOf(dir('90')), 'x-');
+  assert.equal(axisOf(dir('180')), 'z+');
+  assert.equal(axisOf(dir('270')), 'x+');
+  // 尺寸：90° 使 X↔Z 互换，180° 尺寸不变。
+  const rot90 = directSpinQuaternion('90');
+  closeVec(rotatedSize([1.8, 0.56, 1.08], rot90), [1.08, 0.56, 1.8]);
+  closeVec(rotatedSize([1.8, 0.56, 1.08], directSpinQuaternion('180')), [1.8, 0.56, 1.08]);
 });
 
 test('unitOrientationQuaternion：平放且朝向匹配为恒等', () => {

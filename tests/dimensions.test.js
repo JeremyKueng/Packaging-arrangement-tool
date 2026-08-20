@@ -64,7 +64,7 @@ test('自定义单卷始终按本地卷径/卷高轴缩放', () => {
 test('包装规则与产品尺寸分离，压缩系数正确', () => {
   assert.deepEqual(packagingRules.midpackHeightScale, { handkerchief: 0.88, softdraw: 0.82, roll: 1 });
   assert.equal(packagingRules.rollBundleGap, 0);
-  assert.equal(packagingRules.rollBundleFilmAllowance, 0.08);
+  assert.equal(packagingRules.rollBundleFilmAllowance, 0.03);
   assert.deepEqual(packagingRules.bagPadding, [0.015, 0.035, 0.015]);
   assert.equal(midpackHeightScale('softdraw'), 0.82);
   assert.equal(midpackHeightScale('unknown'), 1);

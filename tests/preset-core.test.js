@@ -21,7 +21,7 @@ test('clampPresetNumber：四舍五入并夹取', () => {
 test('normalizePreset：默认值、越界夹取、朝向回退', () => {
   const p = normalizePreset('softdraw', { rows: 99, cols: 0, layers: -3, orientation: 'bogus' }, {});
   assert.equal(p.orientation, 'flat'); // 非法朝向回退到首个
-  assert.equal(p.rows, 12);
+  assert.equal(p.rows, 25);
   assert.equal(p.cols, 1);
   assert.equal(p.layers, 1);
   assert.equal(p.name, '未命名预设');

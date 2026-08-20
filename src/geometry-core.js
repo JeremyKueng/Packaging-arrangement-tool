@@ -114,6 +114,16 @@ export function productOrientationQuaternion(
 // 旧名称保留，避免外部集成和历史预设代码失效；新代码应使用更明确的名称。
 export const unitOrientationQuaternion = packageUnitOrientationQuaternion;
 
+// 直装（单粒直接装入大包/装箱）的剩余旋转自由度：绕竖直轴把已定向的产品再旋转。
+// 0°/90°/180°/270° 覆盖四个朝向，用于表达“该装入姿态仍可旋转的面”，如软抽直立开口刻线朝向、
+// 立式卷膜包 ×2 面朝向。旋转发生在产品姿态之后（世界系先乘），并同步参与尺寸换算与装箱命名。
+const DIRECT_SPIN_ANGLES = { none: 0, 90: Math.PI / 2, 180: Math.PI, 270: -Math.PI / 2 };
+export function directSpinQuaternion(spin) {
+  const angle = DIRECT_SPIN_ANGLES[spin];
+  if (angle) return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+  return new THREE.Quaternion();
+}
+
 export function rotatedSize(size, quaternion) {
   const half = new THREE.Vector3(size[0] / 2, size[1] / 2, size[2] / 2);
   const box = new THREE.Box3(half.clone().negate(), half).applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(quaternion));
@@ -127,8 +137,9 @@ export function formatXzySize(size) {
 
 // 卫卷单粒（未成膜包）在各朝向下的计算尺寸：仅圆柱轴方向不同。
 // dimensionOverride 为可选的产品尺寸覆盖（{enabled, diameterMm, axialWidthMm, flattenRatePct}）。
-// 无芯卫卷按椭圆截面计算：横/卧时短轴始终作为竖直承压方向，长轴用于横向展开。
-export function rollUnitDims(orientation, dimensionOverride = null, rollCore = 'cored') {
+// 无芯卫卷按椭圆截面计算：横/卧时短轴始终作为竖直承压方向；
+// 直立时长轴（凸面）沿提手端轴向 handleSide，提手/封尾面看到卷的鼓面、扁面朝两侧。
+export function rollUnitDims(orientation, dimensionOverride = null, rollCore = 'cored', handleSide = 'z-') {
   const { diameter, axialWidth, flattenRatePct } = resolveProductDimensions('roll', dimensionOverride);
   const cross = rollCore === 'coreless'
     ? resolveCorelessRollCrossSection(diameter, flattenRatePct)
@@ -137,9 +148,16 @@ export function rollUnitDims(orientation, dimensionOverride = null, rollCore = '
   const minor = cross.minorDiameter;
   // 无芯卷横放时，模型会先把短轴放到局部 X，再绕 Z 轴转为世界竖直方向；
   // 这里保持与 makeRoll 的椭圆缩放一致，再通过统一姿态四元数换算到世界尺寸。
-  const localSize = orientation === 'horizontal'
-    ? [minor, axialWidth, major]
-    : [major, axialWidth, minor];
+  let localSize;
+  if (orientation === 'horizontal') {
+    localSize = [minor, axialWidth, major];
+  } else if (orientation === 'lying') {
+    localSize = [major, axialWidth, minor];
+  } else {
+    // 直立：椭圆长轴沿提手端轴向（提手在 z± → 长轴沿 Z；提手在 x± → 长轴沿 X）。
+    const handleAlongX = String(handleSide || 'z-').startsWith('x');
+    localSize = handleAlongX ? [major, axialWidth, minor] : [minor, axialWidth, major];
+  }
   return rotatedSize(localSize, productOrientationQuaternion('roll', orientation));
 }
 
@@ -147,7 +165,7 @@ export function rollUnitDims(orientation, dimensionOverride = null, rollCore = '
 // dimensionOverride 为可选的产品尺寸覆盖（{enabled, lengthMm/widthMm/heightMm 或 diameterMm/axialWidthMm}）。
 export function dimsFor(type, orientation, handleSide = 'z-', bundleSpec = { count: 1 }, dimensionOverride = null, rollCore = 'cored', softdrawVariant = 'standard', hangingSideDirection = 'parallel') {
   if (type === 'roll') {
-    const single = rollUnitDims(orientation, dimensionOverride, rollCore);
+    const single = rollUnitDims(orientation, dimensionOverride, rollCore, handleSide);
     if (!bundleSpec || bundleSpec.count === 1) return single;
     const gap = packagingRules.rollBundleGap;
     const allowance = packagingRules.rollBundleFilmAllowance;

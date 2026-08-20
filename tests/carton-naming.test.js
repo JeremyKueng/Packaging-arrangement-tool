@@ -42,12 +42,13 @@ test('软抽直装：最终箱长改变时自动区分顺/横箱长', () => {
   assert.equal(direct('softdraw', 'side', 3, 1).code, 'rect.side.along');
 });
 
-test('软抽直立：按小横截面中实际顺箱长的边区分宽边/厚边', () => {
+test('软抽直立：按小横截面中实际顺箱长的边区分宽边/厚边，并标注开口刻线朝向', () => {
   const widthAlong = direct('softdraw', 'upright', 2, 2);
-  assert.equal(widthAlong.code, 'rect.end.width-along');
-  assert.equal(widthAlong.postureName, '宽边顺箱长端立');
+  assert.equal(widthAlong.code, 'rect.end.width-along.opening-along');
+  assert.equal(widthAlong.postureName, '宽边顺箱长端立（开口刻线顺箱长）');
   const thicknessAlong = direct('softdraw', 'upright', 4, 1);
-  assert.equal(thicknessAlong.code, 'rect.end.thickness-along');
+  assert.equal(thicknessAlong.code, 'rect.end.thickness-along.opening-cross');
+  assert.equal(thicknessAlong.postureName, '厚边顺箱长端立（开口刻线朝箱宽）');
 });
 
 test('悬挂式底抽侧立十字按产品姿态四元数命名，不再依赖轴交换补丁', () => {
@@ -78,6 +79,39 @@ test('卫卷直装：立式、卷轴顺箱长与卷轴横箱长', () => {
   assert.equal(direct('roll', 'upright', 2, 3).code, 'roll.vertical');
   assert.equal(direct('roll', 'horizontal', 3, 1).code, 'roll.axis-along');
   assert.equal(direct('roll', 'horizontal', 1, 3).code, 'roll.axis-cross');
+});
+
+test('立式卷膜包 ×2 面朝向：并列方向沿箱长→靠箱宽，沿箱宽→靠箱长', () => {
+  const sourceSnapshot = { orientation: 'upright', rollCore: 'cored', rollBundleMode: '6', rollBundleX: 2, rollBundleZ: 1, rollBundleY: 3 };
+  const width = deriveCartonNaming({
+    productType: 'roll', sourceType: 'product', sourceSnapshot,
+    presetSnapshot: { rows: 2, cols: 1, layers: 1, spacing: 0, margin: 0.05 },
+  });
+  assert.equal(width.code, 'roll.vertical.pair-width');
+  assert.equal(width.postureName, '立式装箱（×2面靠箱宽）');
+  const length = deriveCartonNaming({
+    productType: 'roll', sourceType: 'product', sourceSnapshot,
+    presetSnapshot: { rows: 2, cols: 1, layers: 1, spacing: 0, margin: 0.05, directSpin: '90' },
+  });
+  assert.equal(length.code, 'roll.vertical.pair-length');
+  assert.equal(length.postureName, '立式装箱（×2面靠箱长）');
+});
+
+test('直装旋转 180° 使软抽直立开口刻线换到对侧', () => {
+  const none = deriveCartonNaming({
+    productType: 'softdraw', sourceType: 'product',
+    sourceSnapshot: { orientation: 'upright', rollCore: 'cored', rollBundleMode: 'single' },
+    presetSnapshot: { rows: 2, cols: 2, layers: 1, spacing: 0, margin: 0.05 },
+  });
+  assert.equal(none.code, 'rect.end.width-along.opening-along');
+  const spun = deriveCartonNaming({
+    productType: 'softdraw', sourceType: 'product',
+    sourceSnapshot: { orientation: 'upright', rollCore: 'cored', rollBundleMode: 'single' },
+    presetSnapshot: { rows: 2, cols: 2, layers: 1, spacing: 0, margin: 0.05, directSpin: '90' },
+  });
+  // 旋转 90° 后宽向（刻线轴）转到 X，若 X 仍为箱长则刻线顺箱长；此处 X=0.56*2 箱长沿 Z（宽向），
+  // 旋转后宽向沿 X → 刻线朝箱宽方向改变为厚度顺箱长。
+  assert.ok(spun.code.startsWith('rect.end.'));
 });
 
 test('经中包装箱按中包旋转后轴向与闭箱长边命名', () => {

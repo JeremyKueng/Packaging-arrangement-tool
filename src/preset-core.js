@@ -6,6 +6,7 @@ import {
   HANDLE_SIDES,
   ROLL_CORES,
   ROLL_BUNDLE_MODES,
+  DIRECT_SPINS,
   LOAD_FACES,
   UNIT_POSTURES,
   UNIT_FACINGS,
@@ -40,6 +41,8 @@ export function outerDefaults(level) {
     unitPosture: 'flat',
     unitFacing: 'z-',
     productOrientation: 'upright',
+    // 直装（单粒直接装入）时绕竖直轴的剩余旋转：'none' 默认不旋转，'90' 旋转 90°。
+    directSpin: 'none',
     rollCore: 'cored',
     rollBundleMode: 'single',
     rollBundleX: 1,
@@ -78,7 +81,7 @@ export function normalizePreset(type, record, fallback = {}) {
     : (type === 'softdraw' && HANGING_SIDE_DIRECTIONS.includes(fallbackSideDirection) ? fallbackSideDirection : 'parallel');
   return {
     name: String(record?.name || fallback.name || '未命名预设').trim().slice(0, 40) || '未命名预设',
-    rows: clampPresetNumber(record?.rows ?? fallback.rows, 1, 12),
+    rows: clampPresetNumber(record?.rows ?? fallback.rows, 1, 25),
     cols: clampPresetNumber(record?.cols ?? fallback.cols, 1, 20),
     layers: clampPresetNumber(record?.layers ?? fallback.layers, 1, 8),
     orientation,
@@ -181,7 +184,7 @@ export function normalizeOuterPreset(level, record, fallback = outerDefaults(lev
   return {
     name: String(source.name ?? fallback.name ?? `${outerLevelName(level)}临时方案`).trim().slice(0, 40) || `${outerLevelName(level)}临时方案`,
     unit: source.unit === 'product' ? 'product' : 'midpack',
-    rows: clampPresetNumber(source.rows ?? fallback.rows, 1, 12),
+    rows: clampPresetNumber(source.rows ?? fallback.rows, 1, 25),
     cols: clampPresetNumber(source.cols ?? fallback.cols, 1, 20),
     layers: clampPresetNumber(source.layers ?? fallback.layers, 1, 8),
     spacing: Math.round(clampDecimal(source.spacing, 0, 2, Number.isFinite(Number(fallback.spacing)) ? Number(fallback.spacing) : 0) * 100) / 100,
@@ -196,6 +199,10 @@ export function normalizeOuterPreset(level, record, fallback = outerDefaults(lev
     productOrientation: PRODUCT_ORIENTATIONS.includes(source.productOrientation)
       ? source.productOrientation
       : (PRODUCT_ORIENTATIONS.includes(fallback.productOrientation) ? fallback.productOrientation : 'flat'),
+    // 直装剩余旋转仅对 unit === 'product' 有意义；旧方案缺失时回退 'none'。
+    directSpin: DIRECT_SPINS.includes(source.directSpin)
+      ? source.directSpin
+      : (DIRECT_SPINS.includes(fallback.directSpin) ? fallback.directSpin : 'none'),
     rollCore: ROLL_CORES.includes(source.rollCore)
       ? source.rollCore
       : (ROLL_CORES.includes(fallback.rollCore) ? fallback.rollCore : 'cored'),

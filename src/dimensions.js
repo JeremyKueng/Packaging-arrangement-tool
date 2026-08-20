@@ -102,7 +102,11 @@ export const catalog = {
 // 领域枚举常量（纯配置，供 UI 与预设标准化共用）
 export const HANDLE_SIDES = ['z+', 'z-', 'x+', 'x-'];
 export const ROLL_CORES = ['cored', 'coreless'];
-export const ROLL_BUNDLE_MODES = ['single', '4', '6', 'custom'];
+// 有芯卫卷膜包预设统一为 2×1×N：2 卷=2×1×1、4 卷=2×1×2、6 卷=2×1×3（X 并列 × Z 单排 × Y 叠层）。
+export const ROLL_BUNDLE_MODES = ['single', '2', '4', '6', 'custom'];
+// 直装（单粒直接装入大包/装箱）时绕竖直轴的剩余旋转自由度：0°/90°/180°/270°，覆盖四个朝向。
+// 用于表达“该装入姿态仍可旋转的面”：软抽直立控制开口刻线朝向（四个面可选）、立式卷膜包 ×2 面朝向等。
+export const DIRECT_SPINS = ['none', '90', '180', '270'];
 export const SOFTDRAW_VARIANTS = ['standard', 'hanging-bottom'];
 export const SOFTDRAW_VARIANT_LABELS = Object.freeze({
   standard: '普通软抽',
@@ -127,8 +131,9 @@ export const packagingRules = {
   // 中包组合视图 Y 向轻度压紧；端部厚边由 bagPadding 控制，不能靠压扁产品解决。
   midpackHeightScale: { handkerchief: 0.88, softdraw: 0.82, roll: 1 },
   // 卫卷小包组合：卷间间隙与整体膜余量（尺寸换算用）。
+  // 外膜为贴合收缩膜形态：余量只保留薄膜厚度级（原方盒口径 0.08 收紧为 0.03）。
   rollBundleGap: 0,
-  rollBundleFilmAllowance: 0.08,
+  rollBundleFilmAllowance: 0.03,
   // 中包膜相对总尺寸的 X/Y/Z 总余量（两侧均分）。X/Z 只留薄膜贴合量，避免端部出现厚底。
   bagPadding: [0.015, 0.035, 0.015],
 };

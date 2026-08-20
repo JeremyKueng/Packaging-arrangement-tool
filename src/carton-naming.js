@@ -5,8 +5,8 @@
 // 已保存方案无需迁移。单个方案还可通过 formalNameOverride 覆盖系统生成名称。
 
 import * as THREE from 'three';
-import { catalog, packagingRules, midpackHeightScale } from './dimensions.js';
-import { dimsFor, rotatedSize, productOrientationQuaternion, packageUnitOrientationQuaternion } from './geometry-core.js';
+import { catalog, packagingRules, midpackHeightScale, DIRECT_SPINS } from './dimensions.js';
+import { dimsFor, rotatedSize, productOrientationQuaternion, packageUnitOrientationQuaternion, directSpinQuaternion } from './geometry-core.js';
 
 export const CARTON_POSTURE_NAME_MAP = Object.freeze({
   'rect.flat.along': '顺箱长平放',
@@ -15,7 +15,13 @@ export const CARTON_POSTURE_NAME_MAP = Object.freeze({
   'rect.side.cross': '横箱长侧立',
   'rect.end.width-along': '宽边顺箱长端立',
   'rect.end.thickness-along': '厚边顺箱长端立',
+  'rect.end.width-along.opening-along': '宽边顺箱长端立（开口刻线顺箱长）',
+  'rect.end.width-along.opening-cross': '宽边顺箱长端立（开口刻线朝箱宽）',
+  'rect.end.thickness-along.opening-along': '厚边顺箱长端立（开口刻线顺箱长）',
+  'rect.end.thickness-along.opening-cross': '厚边顺箱长端立（开口刻线朝箱宽）',
   'roll.vertical': '立式装箱',
+  'roll.vertical.pair-width': '立式装箱（×2面靠箱宽）',
+  'roll.vertical.pair-length': '立式装箱（×2面靠箱长）',
   'roll.axis-along': '卷轴顺箱长',
   'roll.axis-cross': '卷轴横箱长',
 });
@@ -41,8 +47,10 @@ function rollBundleSpec(snapshot = {}) {
   if (snapshot.rollCore === 'coreless' || snapshot.rollBundleMode === 'single' || !snapshot.rollBundleMode) {
     return { count: 1, x: 1, z: 1, y: 1 };
   }
-  if (snapshot.rollBundleMode === '4') return { count: 4, x: 2, z: 2, y: 1 };
-  if (snapshot.rollBundleMode === '6') return { count: 6, x: 2, z: 3, y: 1 };
+  // 有芯卫卷膜包预设统一 2×1×N（X 并列 × Z 单排 × Y 叠层）。
+  if (snapshot.rollBundleMode === '2') return { count: 2, x: 2, z: 1, y: 1 };
+  if (snapshot.rollBundleMode === '4') return { count: 4, x: 2, z: 1, y: 2 };
+  if (snapshot.rollBundleMode === '6') return { count: 6, x: 2, z: 1, y: 3 };
   const x = safeCount(snapshot.rollBundleX);
   const z = safeCount(snapshot.rollBundleZ);
   const y = safeCount(snapshot.rollBundleY);
@@ -95,7 +103,7 @@ function directRectangularBasis(type, orientation, sourceSnapshot = {}) {
   };
 }
 
-function directSourceGeometry(productType, sourceSnapshot) {
+function directSourceGeometry(productType, sourceSnapshot, presetSnapshot = {}) {
   const bundleSpec = productType === 'roll' ? rollBundleSpec(sourceSnapshot) : { count: 1 };
   const orientation = sourceSnapshot.orientation || catalog[productType].orientations[0][0];
   const size = dimsFor(
@@ -108,11 +116,24 @@ function directSourceGeometry(productType, sourceSnapshot) {
     sourceSnapshot.softdrawVariant || 'standard',
     sourceSnapshot.hangingSideDirection || 'parallel',
   );
+  // 直装剩余旋转（绕竖直轴 0°/90°/180°/270°）：同步参与尺寸、基向量与卷轴/×2面方向换算。
+  const spin = DIRECT_SPINS.includes(presetSnapshot.directSpin) ? presetSnapshot.directSpin : 'none';
+  const spinQuaternion = directSpinQuaternion(spin);
+  const spunSize = rotatedSize(size, spinQuaternion);
   if (productType === 'roll') {
-    const rollAxis = orientation === 'upright' ? 'y' : (orientation === 'horizontal' ? 'x' : 'z');
-    return { size, rollAxis, bundleSpec };
+    const rollAxis = orientation === 'upright'
+      ? 'y'
+      : (orientation === 'horizontal' ? 'x' : 'z');
+    const spunRollAxis = dominantAxis(WORLD_AXES[rollAxis].clone().applyQuaternion(spinQuaternion));
+    // 立式膜包的 ×2 面朝向：并列方向（bundleSpec.x ≥ 2 且 z = 1 时为膜包本地 X）旋转后的世界轴。
+    const pairAxis = (orientation === 'upright' && bundleSpec.x >= 2 && bundleSpec.z === 1)
+      ? dominantAxis(WORLD_AXES.x.clone().applyQuaternion(spinQuaternion))
+      : null;
+    return { size: spunSize, rollAxis: spunRollAxis, pairAxis, bundleSpec, orientation, spin };
   }
-  return { size, basis: directRectangularBasis(productType, orientation, sourceSnapshot), bundleSpec };
+  const basis = directRectangularBasis(productType, orientation, sourceSnapshot);
+  Object.keys(basis).forEach(key => basis[key].applyQuaternion(spinQuaternion));
+  return { size: spunSize, basis, bundleSpec, orientation, spin };
 }
 
 function midpackSourceGeometry(productType, sourceSnapshot, presetSnapshot) {
@@ -179,7 +200,7 @@ export function deriveCartonNaming({
 } = {}) {
   if (!catalog[productType]) return null;
   const geometry = sourceType === 'product'
-    ? directSourceGeometry(productType, sourceSnapshot)
+    ? directSourceGeometry(productType, sourceSnapshot, presetSnapshot)
     : midpackSourceGeometry(productType, sourceSnapshot, presetSnapshot);
   const rows = safeCount(presetSnapshot.rows);
   const cols = safeCount(presetSnapshot.cols);
@@ -194,11 +215,21 @@ export function deriveCartonNaming({
   const cartonLongAxis = resolveCartonLongAxis(cartonSize[0], cartonSize[2]);
   let code;
   if (sourceType === 'product' && productType === 'roll') {
-    code = geometry.rollAxis === 'y'
-      ? 'roll.vertical'
-      : (geometry.rollAxis === cartonLongAxis ? 'roll.axis-along' : 'roll.axis-cross');
+    if (geometry.rollAxis === 'y') {
+      // 立式装箱细分 ×2 面朝向：并列方向沿箱长 → ×2 面靠箱宽；沿箱宽 → ×2 面靠箱长。
+      code = geometry.pairAxis
+        ? (geometry.pairAxis === cartonLongAxis ? 'roll.vertical.pair-width' : 'roll.vertical.pair-length')
+        : 'roll.vertical';
+    } else {
+      code = geometry.rollAxis === cartonLongAxis ? 'roll.axis-along' : 'roll.axis-cross';
+    }
   } else {
     code = classifyRectangularBasis(geometry.basis, cartonLongAxis);
+    // 直装软抽直立：开口刻线沿物理宽向（提手/开口轴），补刻线与箱长的关系，便于直读朝向。
+    if (sourceType === 'product' && productType === 'softdraw' && geometry.orientation === 'upright'
+      && (code === 'rect.end.width-along' || code === 'rect.end.thickness-along')) {
+      code += code === 'rect.end.width-along' ? '.opening-along' : '.opening-cross';
+    }
   }
   const postureName = cartonPostureName(code, nameMap);
   const sourceLabel = sourceType === 'product'

@@ -223,7 +223,7 @@
         <div class="field" id="softdrawVariantField" hidden><label for="softdrawVariant">软抽子品类</label><select id="softdrawVariant"><option value="standard">普通软抽</option><option value="hanging-bottom">悬挂式底抽</option></select></div>
         <div class="field" id="rollCoreField" hidden><label for="rollCore">卫卷小粒形态</label><select id="rollCore"><option value="cored">有芯卫卷</option><option value="coreless">无芯卫卷</option></select></div>
         <div id="rollBundleField" hidden>
-          <div class="field"><label for="rollBundleMode">有芯卫卷小包规格</label><select id="rollBundleMode"><option value="single">单卷膜包</option><option value="4">4卷膜包（2×2×1）</option><option value="6">6卷膜包（2×3×1）</option><option value="custom">自定义组合小包</option></select></div>
+          <div class="field"><label for="rollBundleMode">有芯卫卷小包规格</label><select id="rollBundleMode"><option value="single">单卷膜包</option><option value="2">2卷膜包（2×1×1）</option><option value="4">4卷膜包（2×1×2）</option><option value="6">6卷膜包（2×1×3）</option><option value="custom">自定义组合小包</option></select></div>
           <div class="grid-3" id="rollBundleCustomFields" hidden>
             <div class="field"><label for="rollBundleX">小包 X 卷数</label><input id="rollBundleX" type="number" min="1" max="8" value="2"></div>
             <div class="field"><label for="rollBundleZ">小包 Z 卷数</label><input id="rollBundleZ" type="number" min="1" max="8" value="2"></div>
@@ -291,7 +291,7 @@
           </div>
           <div id="midpackArrangementFields">
             <div class="grid-3">
-              <div class="field"><label for="rows" id="rowsLabel">排数 X</label><input id="rows" type="number" min="1" max="12" value="2"></div>
+              <div class="field"><label for="rows" id="rowsLabel">排数 X</label><input id="rows" type="number" min="1" max="25" value="2"></div>
               <div class="field"><label for="cols" id="colsLabel">每排包数 Z</label><input id="cols" type="number" min="1" max="20" value="3"></div>
               <div class="field"><label for="layers" id="layersLabel">层数 Y</label><input id="layers" type="number" min="1" max="8" value="3"></div>
             </div>
@@ -349,7 +349,7 @@
                 </div>
               </div>
               <div class="grid-3">
-                <div class="field"><label for="outerRows">外包装 X 行数</label><input id="outerRows" type="number" min="1" max="12" value="2"></div>
+                <div class="field"><label for="outerRows">外包装 X 行数</label><input id="outerRows" type="number" min="1" max="25" value="2"></div>
                 <div class="field"><label for="outerCols">外包装 Z 列数</label><input id="outerCols" type="number" min="1" max="20" value="1"></div>
                 <div class="field"><label for="outerLayers">外包装 Y 层数</label><input id="outerLayers" type="number" min="1" max="8" value="1"></div>
               </div>
@@ -506,8 +506,8 @@
     import * as THREE from 'three';
     import { OrbitControls } from './vendor/OrbitControls.js';
     import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
-    import { catalog, HANDLE_SIDES, ROLL_CORES, ROLL_BUNDLE_MODES, SOFTDRAW_VARIANTS, SOFTDRAW_VARIANT_LABELS, HANGING_SIDE_DIRECTIONS, PACKAGING_LEVELS, LOAD_FACES, UNIT_POSTURES, UNIT_FACINGS, PRODUCT_ORIENTATIONS, LEGACY_UNIT_POSES, STACK_MODES, midpackHeightScale, packagingRules, SCENE_UNITS_PER_MM, DEFAULT_PRODUCT_SIZE_MM, defaultProductSizeMm, normalizeProductSizeOverride, resolveCorelessRollCrossSection, resolveProductDimensions } from './src/dimensions.js';
-    import { directionForSide, faceVector, loadFaceLabel, postureLabel, unitFacingLabel, unitOrientationDescription, packageUnitOrientationQuaternion, productOrientationQuaternion, rotatedSize, formatXzySize, rollUnitDims, dimsFor, productVisualScale, midpackArrangementMetrics } from './src/geometry-core.js';
+    import { catalog, HANDLE_SIDES, ROLL_CORES, ROLL_BUNDLE_MODES, DIRECT_SPINS, SOFTDRAW_VARIANTS, SOFTDRAW_VARIANT_LABELS, HANGING_SIDE_DIRECTIONS, PACKAGING_LEVELS, LOAD_FACES, UNIT_POSTURES, UNIT_FACINGS, PRODUCT_ORIENTATIONS, LEGACY_UNIT_POSES, STACK_MODES, midpackHeightScale, packagingRules, SCENE_UNITS_PER_MM, DEFAULT_PRODUCT_SIZE_MM, defaultProductSizeMm, normalizeProductSizeOverride, resolveCorelessRollCrossSection, resolveProductDimensions } from './src/dimensions.js';
+    import { directionForSide, faceVector, loadFaceLabel, postureLabel, unitFacingLabel, unitOrientationDescription, packageUnitOrientationQuaternion, productOrientationQuaternion, directSpinQuaternion, rotatedSize, formatXzySize, rollUnitDims, dimsFor, productVisualScale, midpackArrangementMetrics } from './src/geometry-core.js';
     import { clampPresetNumber, outerLevelName, outerDefaults, normalizePreset, normalizeOuterPreset, mergeBuiltinOverridesPreservingExisting } from './src/preset-core.js';
     import { buildPdfEntries, groupPdfEntries, effectivePdfScope, STAGE_NAMES } from './src/pdf-entry-core.js';
     import { deriveCartonNaming } from './src/carton-naming.js';
@@ -809,6 +809,8 @@
         unitPosture:directProduct ? (ui.outerUnitPosture.dataset.midpackPosture || 'flat') : ui.outerUnitPosture.value,
         unitFacing:directProduct ? (ui.outerUnitFacing.dataset.midpackFacing || 'z-') : ui.outerUnitFacing.value,
         productOrientation:directProduct ? ui.outerUnitPosture.value : (ui.outerUnitPosture.dataset.productOrientation || ui.orientation.value),
+        // 直装剩余旋转（绕竖直轴）：产品模式下由“单元朝向”选择器表达，中包模式恒为 none。
+        directSpin:directProduct ? (DIRECT_SPINS.includes(ui.outerUnitFacing.value) ? ui.outerUnitFacing.value : 'none') : 'none',
         rollCore:ui.rollCore.value,
         rollBundleMode:ui.rollBundleMode.value,
         rollBundleX:ui.rollBundleX.value,
@@ -893,7 +895,25 @@
       return directProductOrientations(type).find(item => item[0] === orientation)?.[1] || orientation;
     }
 
-    function syncOuterOrientationUi(requestedPosture, requestedFacing, requestedProductOrientation) {
+    // 直装“仍可旋转的面”选项：绕竖直轴的剩余旋转自由度，按品类/姿态给出业务含义标签。
+    // 软抽直立提供四个朝向（开口刻线可朝 -Z/-X/+Z/+X）；立式卷膜包提供 ×2 面两个朝向（180°/270° 与 0°/90° 等价）。
+    function directSpinOptions(type, orientation, bundleSpec = null) {
+      const facingOf = spin => {
+        const v = new THREE.Vector3(0, 0, -1).applyQuaternion(directSpinQuaternion(spin));
+        const ax = Math.abs(v.x) > Math.abs(v.z) ? 'x' : 'z';
+        return ax + ((ax === 'x' ? v.x : v.z) >= 0 ? '+' : '-');
+      };
+      const degree = s => (s === 'none' ? '不旋转' : `旋转 ${s}°`);
+      if (type === 'softdraw' && orientation === 'upright') {
+        return DIRECT_SPINS.map(s => [s, `${degree(s)}（刻线朝 ${facingOf(s)}）`]);
+      }
+      if (type === 'roll' && orientation === 'upright' && bundleSpec && bundleSpec.x >= 2 && bundleSpec.z === 1) {
+        return [['none', '不旋转（×2面朝 +Z）'], ['90', '旋转 90°（×2面朝 +X）']];
+      }
+      return DIRECT_SPINS.map(s => [s, degree(s)]);
+    }
+
+    function syncOuterOrientationUi(requestedPosture, requestedFacing, requestedProductOrientation, requestedDirectSpin = null) {
       const directProduct = ui.outerUnit.value === 'product';
       const previousMode = ui.outerUnitPosture.dataset.mode;
       const currentPosture = ui.outerUnitPosture.value;
@@ -901,9 +921,12 @@
       if (previousMode === 'midpack') {
         if (UNIT_POSTURES.includes(currentPosture)) ui.outerUnitPosture.dataset.midpackPosture = currentPosture;
         if (UNIT_FACINGS.includes(currentFacing)) ui.outerUnitFacing.dataset.midpackFacing = currentFacing;
-      } else if (previousMode === 'product' && PRODUCT_ORIENTATIONS.includes(currentPosture)) {
-        ui.outerUnitPosture.dataset.productOrientation = currentPosture;
-        ui.outerUnitPosture.dataset.productOrientationType = ui.category.value;
+      } else if (previousMode === 'product') {
+        if (PRODUCT_ORIENTATIONS.includes(currentPosture)) {
+          ui.outerUnitPosture.dataset.productOrientation = currentPosture;
+          ui.outerUnitPosture.dataset.productOrientationType = ui.category.value;
+        }
+        if (DIRECT_SPINS.includes(currentFacing)) ui.outerUnitPosture.dataset.productSpin = currentFacing;
       }
       const posture = UNIT_POSTURES.includes(requestedPosture)
         ? requestedPosture
@@ -925,12 +948,20 @@
         ui.outerUnitPosture.value = productOrientation;
         ui.outerUnitPosture.dataset.productOrientation = productOrientation;
         ui.outerUnitPosture.dataset.productOrientationType = ui.category.value;
-        ui.outerUnitFacing.add(new Option('随所选小粒姿态','product'));
-        ui.outerUnitFacing.value = 'product';
+        // 直装时“单元朝向”表达绕竖直轴仍可旋转的面：软抽直立=开口刻线朝向，立式卷膜包=×2 面朝向。
+        const bundleSpec = ui.category.value === 'roll' ? currentRollBundleSpec() : null;
+        const options = directSpinOptions(ui.category.value, productOrientation, bundleSpec);
+        options.forEach(item => ui.outerUnitFacing.add(new Option(item[1], item[0])));
+        const validSpins = options.map(item => item[0]);
+        const spin = validSpins.includes(requestedDirectSpin)
+          ? requestedDirectSpin
+          : (validSpins.includes(ui.outerUnitPosture.dataset.productSpin) ? ui.outerUnitPosture.dataset.productSpin : 'none');
+        ui.outerUnitFacing.value = spin;
+        ui.outerUnitPosture.dataset.productSpin = spin;
         ui.outerUnitPosture.disabled = false;
-        ui.outerUnitFacing.disabled = true;
+        ui.outerUnitFacing.disabled = false;
         ui.outerUnitPostureLabel.textContent = '小粒摆放姿态';
-        ui.outerUnitFacingLabel.textContent = '单元朝向';
+        ui.outerUnitFacingLabel.textContent = '直装旋转（绕竖直轴）';
         ui.outerUnitPosture.dataset.mode = 'product';
       } else {
         UNIT_POSTURES.forEach(value => ui.outerUnitPosture.add(new Option(postureLabel(value,ui.category.value),value)));
@@ -1003,7 +1034,7 @@
         if (values.unit==='midpack' && ui.category.value==='roll') {
           values.rollCore=sourceRollCore; values.rollBundleMode=sourceBundle.mode; values.rollBundleX=sourceBundle.x; values.rollBundleZ=sourceBundle.z; values.rollBundleY=sourceBundle.y;
         }
-        ui.outerUnit.value = values.unit; ui.outerLoadFace.value = values.loadFace; ui.rollCore.value = values.rollCore; ui.rollBundleMode.value=values.rollBundleMode; ui.rollBundleX.value=values.rollBundleX; ui.rollBundleZ.value=values.rollBundleZ; ui.rollBundleY.value=values.rollBundleY; syncRollBundleUi(); syncOuterOrientationUi(values.unitPosture,values.unitFacing,values.productOrientation); ui.outerStackMode.value = values.stackMode; ui.caseDividerMode.value = values.dividerMode;
+        ui.outerUnit.value = values.unit; ui.outerLoadFace.value = values.loadFace; ui.rollCore.value = values.rollCore; ui.rollBundleMode.value=values.rollBundleMode; ui.rollBundleX.value=values.rollBundleX; ui.rollBundleZ.value=values.rollBundleZ; ui.rollBundleY.value=values.rollBundleY; syncRollBundleUi(); syncOuterOrientationUi(values.unitPosture,values.unitFacing,values.productOrientation,values.directSpin); ui.outerStackMode.value = values.stackMode; ui.caseDividerMode.value = values.dividerMode;
         ui.outerRows.value = values.rows; ui.outerCols.value = values.cols; ui.outerLayers.value = values.layers;
         ui.outerSpacing.value = values.spacing; ui.outerMargin.value = values.margin; ui.outerPresetName.value = values.name;
         ui.cartonFormalNameOverride.value = values.formalNameOverride || '';
@@ -1131,8 +1162,10 @@
 
     function rollBundleSpec(mode = ui.rollBundleMode.value, x = ui.rollBundleX.value, z = ui.rollBundleZ.value, y = ui.rollBundleY.value, rollCore = ui.rollCore.value) {
       if (rollCore === 'coreless' || mode === 'single') return {mode:'single',x:1,z:1,y:1,count:1,label:'单卷膜包'};
-      if (mode === '4') return {mode:'4',x:2,z:2,y:1,count:4,label:'4卷膜包（2×2×1）'};
-      if (mode === '6') return {mode:'6',x:2,z:3,y:1,count:6,label:'6卷膜包（2×3×1）'};
+      // 有芯卫卷膜包统一 2×1×N：X 并列两卷、Z 单排、Y 叠 N 层。
+      if (mode === '2') return {mode:'2',x:2,z:1,y:1,count:2,label:'2卷膜包（2×1×1）'};
+      if (mode === '4') return {mode:'4',x:2,z:1,y:2,count:4,label:'4卷膜包（2×1×2）'};
+      if (mode === '6') return {mode:'6',x:2,z:1,y:3,count:6,label:'6卷膜包（2×1×3）'};
       const bx=clampPresetNumber(x,1,8),bz=clampPresetNumber(z,1,8),by=clampPresetNumber(y,1,6);
       return {mode:'custom',x:bx,z:bz,y:by,count:bx*bz*by,label:`自定义${bx*bz*by}卷膜包（${bx}×${bz}×${by}）`};
     }
@@ -1299,12 +1332,16 @@
         if (plan.unit === 'product') {
           const productOrientation = resolveProductOrientation(type,plan.productOrientation);
           const directSpec=type==='roll'?rollBundleSpec(plan.rollBundleMode,plan.rollBundleX,plan.rollBundleZ,plan.rollBundleY,plan.rollCore):{count:1,label:'单粒产品'};
-          const size = dimsFor(type,productOrientation,ui.handleSide.value,directSpec,currentDimensionOverride(type),plan.rollCore,ui.softdrawVariant.value,ui.hangingSideDirection.value);
+          const rawSize = dimsFor(type,productOrientation,ui.handleSide.value,directSpec,currentDimensionOverride(type),plan.rollCore,ui.softdrawVariant.value,ui.hangingSideDirection.value);
+          const size = rotatedSize(rawSize, directSpinQuaternion(plan.directSpin));
           const orientationLabel = directProductOrientationLabel(type,productOrientation);
           const coreText = type === 'roll' ? `；形态：${currentRollCoreLabel()}` : '';
+          const spinText = plan.directSpin !== 'none'
+            ? `；直装旋转 ${plan.directSpin}°（${directSpinOptions(type, productOrientation, directSpec).find(o => o[0] === plan.directSpin)?.[1] || plan.directSpin}）`
+            : '';
           const lines = [
             `装入面：${loadFaceLabel(plan.loadFace)}；码放：全部同向。`,
-            `装入单元：${type==='roll'?directSpec.label:'单粒产品'}；摆放姿态：“${orientationLabel}”${coreText}；参考尺寸 X×Z×Y：${formatXzySize(size)}。`,
+            `装入单元：${type==='roll'?directSpec.label:'单粒产品'}；摆放姿态：“${orientationLabel}”${coreText}${spinText}；参考尺寸 X×Z×Y：${formatXzySize(size)}。`,
             `${outerLevelName(packagingLevel)}按 X 行 × Z 列 × Y 层排列；容器尺寸包含单元间距和四周余量。`
           ];
           const naming = currentCartonNaming(plan);
@@ -1637,28 +1674,28 @@
     function makeHandkerchief(orientation, color) {
       const group = new THREE.Group();
       const flags = detailFlags();
-      // 便携纸手帕是竖向正面的小袋，不是横向迷你盒；平放时正面朝上，厚度很薄。
+      // 便携纸手帕是竖向正面的小袋，不是横向迷你盒；平放时正面朝上，厚度很薄。尺寸与计算口径一致（0.92×1.34×0.24），并列时紧贴。
       const wrapperColor = new THREE.Color(0x8cb8e7);
-      const bodyGeo = new RoundedBoxGeometry(.86,.21,1.25,5,.028);
+      const bodyGeo = new RoundedBoxGeometry(.92,.24,1.34,5,.028);
       const bodyMat = new THREE.MeshPhysicalMaterial({
         color:wrapperColor,roughness:.36,metalness:0,clearcoat:.46,clearcoatRoughness:.30,
         sheen:.18,sheenColor:new THREE.Color(0xeaf6ff),transparent:true,opacity:.82,depthWrite:true
       });
       const body = new THREE.Mesh(bodyGeo,bodyMat); body.castShadow=true; body.receiveShadow=true;
       group.add(body,edgeLines(bodyGeo,0x245e91,.46));
-      if (flags.decor) addPrintedFace(group,.82,1.20,new THREE.Vector3(0,.108,0),new THREE.Euler(-Math.PI/2,0,0),'handkerchief',.62);
-      if (flags.logo) addVindaLogoDecal(group,.36,.23,new THREE.Vector3(-.17,.119,-.34),new THREE.Euler(-Math.PI/2,0,0),.84);
+      if (flags.decor) addPrintedFace(group,.82,1.20,new THREE.Vector3(0,.123,0),new THREE.Euler(-Math.PI/2,0,0),'handkerchief',.62);
+      if (flags.logo) addVindaLogoDecal(group,.36,.23,new THREE.Vector3(-.17,.134,-.34),new THREE.Euler(-Math.PI/2,0,0),.84);
 
       // 顶面开口结构：弧形开封线 + 中央小型易揭贴。红线仅是用户截图标注，模型使用包装蓝表达。
       if (flags.patch) {
         const openingCurve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-.39,.120,-.50),
-          new THREE.Vector3(-.29,.120,-.40),
-          new THREE.Vector3(-.15,.120,-.29),
-          new THREE.Vector3(0,.120,-.245),
-          new THREE.Vector3(.15,.120,-.29),
-          new THREE.Vector3(.29,.120,-.40),
-          new THREE.Vector3(.39,.120,-.50)
+          new THREE.Vector3(-.39,.135,-.50),
+          new THREE.Vector3(-.29,.135,-.40),
+          new THREE.Vector3(-.15,.135,-.29),
+          new THREE.Vector3(0,.135,-.245),
+          new THREE.Vector3(.15,.135,-.29),
+          new THREE.Vector3(.29,.135,-.40),
+          new THREE.Vector3(.39,.135,-.50)
         ],false,'catmullrom',.45);
         const opening = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(openingCurve.getPoints(36)),
@@ -1671,13 +1708,13 @@
           color:0x4d9dcc,transparent:true,opacity:.62,roughness:.56,clearcoat:.08,
           clearcoatRoughness:.72,depthTest:true,depthWrite:false
         }));
-        patch.position.set(0,.119,-.14); patch.renderOrder=11; patch.userData.role='handkerchief-opening-sticker'; group.add(patch);
+        patch.position.set(0,.134,-.14); patch.renderOrder=11; patch.userData.role='handkerchief-opening-sticker'; group.add(patch);
         const patchOutline=edgeLines(patchGeo,0x176b9a,.60); patchOutline.position.copy(patch.position); patchOutline.renderOrder=12; group.add(patchOutline);
       }
 
       // 两个短边是窄幅横向热封；压纹与包体连成一体，不再表现成硬板。
       [-1,1].forEach(sign=>{
-        addCrimpStrip(group,2,sign,.82,.16,.060,.642,0xd9edf7);
+        addCrimpStrip(group,2,sign,.82,.16,.060,.687,0xd9edf7);
       });
 
       // 侧面轻折线与底部纵向背封，强化枕式软包装结构。
@@ -1694,8 +1731,8 @@
         new THREE.LineBasicMaterial({color:0x2b6d9f,transparent:true,opacity:.26})
       ));
       }
-      const backSeam = new THREE.Mesh(new THREE.BoxGeometry(.10,.010,1.10),new THREE.MeshBasicMaterial({color:0x8fc2dc,transparent:true,opacity:.38}));
-      backSeam.position.y=-.108; group.add(backSeam);
+      const backSeam = new THREE.Mesh(new THREE.BoxGeometry(.10,.010,1.18),new THREE.MeshBasicMaterial({color:0x8fc2dc,transparent:true,opacity:.38}));
+      backSeam.position.y=-.123; group.add(backSeam);
 
       group.quaternion.copy(productOrientationQuaternion('handkerchief', orientation));
       return group;
@@ -1810,27 +1847,27 @@
     function makeSoftdraw(orientation, color, handleSide = 'z-', softdrawVariant = 'standard', handleFolded = false, hangingSideDirection = 'parallel') {
       const group = new THREE.Group();
       const flags = detailFlags();
-      // 软抽是纸叠撑起的方正软包：接近直角，但膜面有极轻微张力圆弧，不是硬纸盒。
-      const geo = new RoundedBoxGeometry(1.76,.54,1.04,3,.022);
+      // 软抽是纸叠撑起的方正软包：接近直角，但膜面有极轻微张力圆弧，不是硬纸盒。尺寸与计算口径一致（1.8×1.08×0.56），并列时紧贴。
+      const geo = new RoundedBoxGeometry(1.8,.56,1.08,3,.022);
       const mesh = new THREE.Mesh(geo,new THREE.MeshPhysicalMaterial({
         color:0xeaf4fa,roughness:.34,metalness:0,clearcoat:.44,clearcoatRoughness:.28,
         transparent:true,opacity:.86,transmission:.02,thickness:.035,sheen:.16,sheenColor:new THREE.Color(0xffffff),depthWrite:true
       })); mesh.castShadow=true; mesh.receiveShadow=true;
       group.add(mesh,edgeLines(geo,0x5f91ac,.46));
       // 未锁定具体 SKU 包膜时保持白色半透明，只使用真实品牌标识，避免出现错误包装文字。
-      if (flags.logo) addVindaLogoDecal(group,.38,.22,new THREE.Vector3(-.43,.286,-.20),new THREE.Euler(-Math.PI/2,0,0),.82);
+      if (flags.logo) addVindaLogoDecal(group,.38,.22,new THREE.Vector3(-.44,.296,-.20),new THREE.Euler(-Math.PI/2,0,0),.82);
 
       if (softdrawVariant === 'hanging-bottom') {
         // 附件锚点始终位于软抽本体顶面；本体高度变化只移动锚点，不拉伸提手高度。
         const accessory=makeHangingSoftdrawAccessory(handleFolded);
-        accessory.position.y=.270;
+        accessory.position.y=.280;
         group.add(accessory);
 
         if (flags.patch) {
           const bottomPatchGeo = new THREE.PlaneGeometry(.68,.26);
           const bottomPatch = new THREE.Mesh(bottomPatchGeo,new THREE.MeshBasicMaterial({color:0xf5fbff,transparent:true,opacity:.76,side:THREE.DoubleSide,depthWrite:false}));
-          bottomPatch.rotation.x=Math.PI/2; bottomPatch.position.y=-.273; bottomPatch.renderOrder=10; bottomPatch.userData.role='bottom-opening-sticker'; group.add(bottomPatch);
-          const sealPts=[new THREE.Vector3(-.37,-.276,0),new THREE.Vector3(.37,-.276,0)];
+          bottomPatch.rotation.x=Math.PI/2; bottomPatch.position.y=-.283; bottomPatch.renderOrder=10; bottomPatch.userData.role='bottom-opening-sticker'; group.add(bottomPatch);
+          const sealPts=[new THREE.Vector3(-.37,-.286,0),new THREE.Vector3(.37,-.286,0)];
           const sealLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(sealPts),new THREE.LineDashedMaterial({color:0x217b96,dashSize:.07,gapSize:.045,transparent:true,opacity:.90}));
           sealLine.computeLineDistances(); sealLine.userData.role='bottom-opening-seal'; group.add(sealLine);
         }
@@ -1838,16 +1875,16 @@
         // 普通软抽：闭合式抽口贴位于顶面中央，不做实体凸起。
         const patchGeo = new THREE.PlaneGeometry(.78,.30);
         const patch = new THREE.Mesh(patchGeo,new THREE.MeshBasicMaterial({color:0xf6fdff,transparent:true,opacity:.84,side:THREE.DoubleSide,depthWrite:false}));
-        patch.rotation.x=-Math.PI/2; patch.position.y=.273; patch.renderOrder=10; group.add(patch);
+        patch.rotation.x=-Math.PI/2; patch.position.y=.283; patch.renderOrder=10; group.add(patch);
         const lineMat = new THREE.LineDashedMaterial({color:0x217b96,dashSize:.08,gapSize:.052,transparent:true,opacity:.82});
-        const pts = [new THREE.Vector3(-.42,0,0), new THREE.Vector3(.42,0,0)];
-        const opening = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lineMat); opening.position.y=.275;
+        const pts = [new THREE.Vector3(-.43,0,0), new THREE.Vector3(.43,0,0)];
+        const opening = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lineMat); opening.position.y=.285;
         opening.computeLineDistances(); group.add(opening);
       }
 
       // 两个短端的折膜与热封线，贴近包体，体现软膜封装而非额外硬挡板。
       [-1,1].forEach(sign=>{
-        addCrimpStrip(group,0,sign,.032,.45,.92,.884,0xc9e8f5);
+        addCrimpStrip(group,0,sign,.032,.45,.92,.904,0xc9e8f5);
       });
       group.quaternion.copy(productOrientationQuaternion(
         'softdraw', orientation, handleSide, softdrawVariant, hangingSideDirection,
@@ -1865,15 +1902,15 @@
       return { coreOuterRadius, holeRadius };
     }
 
-    function makeRoll(orientation, color, rollCore = 'cored') {
+    function makeRoll(orientation, color, rollCore = 'cored', handleSide = 'z-') {
       const group = new THREE.Group();
       const flags = detailFlags();
-      const geo = new THREE.CylinderGeometry(.48,.48,1.1,56,2,false);
+      const geo = new THREE.CylinderGeometry(.49,.49,1.15,56,2,false);
       const mesh = new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xf7f5ef,roughness:.94,metalness:0})); mesh.castShadow=true; mesh.receiveShadow=true; group.add(mesh,edgeLines(geo,0xbab09a,.22));
       if (flags.decor) {
       const ringMat = new THREE.MeshBasicMaterial({color:0xc7bcaa,transparent:true,opacity:.62,side:THREE.DoubleSide});
       [-1,1].forEach(sign=>{
-        [0.19,0.27,0.35,0.42,0.462].forEach(radius=>{ const ring=new THREE.Mesh(new THREE.TorusGeometry(radius,.0045,7,56),ringMat.clone()); ring.rotation.x=Math.PI/2; ring.position.y=sign*.552; group.add(ring); });
+        [0.19,0.27,0.35,0.42,0.468].forEach(radius=>{ const ring=new THREE.Mesh(new THREE.TorusGeometry(radius,.0045,7,56),ringMat.clone()); ring.rotation.x=Math.PI/2; ring.position.y=sign*.575; group.add(ring); });
       });
       }
       if (rollCore === 'coreless') {
@@ -1882,25 +1919,25 @@
           const shape = new THREE.Shape();
           for(let i=0;i<24;i++){const angle=i/24*Math.PI*2,r=i%2?.070:.115,x=Math.cos(angle)*r,y=Math.sin(angle)*r;i?shape.lineTo(x,y):shape.moveTo(x,y);} shape.closePath();
           const recess = new THREE.Mesh(new THREE.ShapeGeometry(shape),new THREE.MeshStandardMaterial({color:0xd8d2c5,roughness:1,side:THREE.DoubleSide}));
-          recess.rotation.x = sign > 0 ? -Math.PI/2 : Math.PI/2; recess.position.y = sign*.556; group.add(recess);
-          const folds=[]; for(let i=0;i<12;i++){const a=i/12*Math.PI*2;folds.push(new THREE.Vector3(Math.cos(a)*.025,sign*.563,Math.sin(a)*.025),new THREE.Vector3(Math.cos(a)*.118,sign*.563,Math.sin(a)*.118));}
+          recess.rotation.x = sign > 0 ? -Math.PI/2 : Math.PI/2; recess.position.y = sign*.578; group.add(recess);
+          const folds=[]; for(let i=0;i<12;i++){const a=i/12*Math.PI*2;folds.push(new THREE.Vector3(Math.cos(a)*.025,sign*.578,Math.sin(a)*.025),new THREE.Vector3(Math.cos(a)*.118,sign*.578,Math.sin(a)*.118));}
           group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(folds),new THREE.LineBasicMaterial({color:0xaaa18f,transparent:true,opacity:.62})));
         });
       } else {
         const { coreOuterRadius, holeRadius } = rollCoreVisualRadii();
-        const core = new THREE.Mesh(new THREE.CylinderGeometry(coreOuterRadius,coreOuterRadius,1.112,36),new THREE.MeshStandardMaterial({color:0xc49a67,roughness:.96})); group.add(core);
-        const hole = new THREE.Mesh(new THREE.CylinderGeometry(holeRadius,holeRadius,1.116,32),new THREE.MeshBasicMaterial({color:0x6f5741})); group.add(hole);
+        const core = new THREE.Mesh(new THREE.CylinderGeometry(coreOuterRadius,coreOuterRadius,1.15,36),new THREE.MeshStandardMaterial({color:0xc49a67,roughness:.96})); group.add(core);
+        const hole = new THREE.Mesh(new THREE.CylinderGeometry(holeRadius,holeRadius,1.152,32),new THREE.MeshBasicMaterial({color:0x6f5741})); group.add(hole);
       }
 
-      // 独立收缩膜及品牌标识；轻着色而不过度遮挡卷纸结构。
-      const filmGeo = new THREE.CylinderGeometry(.492,.492,1.112,56,1,true);
+      // 独立收缩膜及品牌标识；轻着色而不过度遮挡卷纸结构。卷体尺寸与计算口径一致（直径 1.0 × 卷高 1.15），并列/叠层时表面相切紧贴。
+      const filmGeo = new THREE.CylinderGeometry(.5,.5,1.15,56,1,true);
       const film = new THREE.Mesh(filmGeo,new THREE.MeshPhysicalMaterial({color:0xcfeaff,transparent:true,opacity:.18,roughness:.30,clearcoat:.58,side:THREE.DoubleSide,depthWrite:false})); film.renderOrder=6; group.add(film);
-      if (flags.logo) addVindaLogoDecal(group,.36,.21,new THREE.Vector3(0,0,.496),new THREE.Euler(0,0,0),.76);
+      if (flags.logo) addVindaLogoDecal(group,.36,.21,new THREE.Vector3(0,0,.501),new THREE.Euler(0,0,0),.76);
       if (flags.decor) {
       [-1,1].forEach(sign=>{
-        const cap = new THREE.Mesh(new THREE.CircleGeometry(.486,56),new THREE.MeshPhysicalMaterial({color:0xf2fbff,transparent:true,opacity:.14,roughness:.24,clearcoat:.70,side:THREE.DoubleSide,depthWrite:false}));
-        cap.rotation.x=sign>0?-Math.PI/2:Math.PI/2; cap.position.y=sign*.558; cap.renderOrder=7; group.add(cap);
-        const shrink=[]; for(let i=0;i<20;i++){const a=i/20*Math.PI*2;shrink.push(new THREE.Vector3(Math.cos(a)*.18,sign*.562,Math.sin(a)*.18),new THREE.Vector3(Math.cos(a)*.474,sign*.562,Math.sin(a)*.474));}
+        const cap = new THREE.Mesh(new THREE.CircleGeometry(.5,56),new THREE.MeshPhysicalMaterial({color:0xf2fbff,transparent:true,opacity:.14,roughness:.24,clearcoat:.70,side:THREE.DoubleSide,depthWrite:false}));
+        cap.rotation.x=sign>0?-Math.PI/2:Math.PI/2; cap.position.y=sign*.575; cap.renderOrder=7; group.add(cap);
+        const shrink=[]; for(let i=0;i<20;i++){const a=i/20*Math.PI*2;shrink.push(new THREE.Vector3(Math.cos(a)*.18,sign*.577,Math.sin(a)*.18),new THREE.Vector3(Math.cos(a)*.494,sign*.577,Math.sin(a)*.494));}
         group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(shrink),new THREE.LineBasicMaterial({color:0xb9cedb,transparent:true,opacity:.18})));
       });
       }
@@ -1913,35 +1950,178 @@
         const minorRatio = cross.minorDiameter / dimensions.diameter;
         // horizontal 绕 Z 轴转后，局部 X 成为世界竖直方向，因此长短轴互换，保证短轴始终为受压高度。
         if (orientation === 'horizontal') group.scale.set(minorRatio,1,majorRatio);
-        else group.scale.set(majorRatio,1,minorRatio);
+        else if (orientation === 'lying') group.scale.set(majorRatio,1,minorRatio);
+        else {
+          // 直立：椭圆长轴（凸面）沿提手端轴向，提手/封尾面看到卷的鼓面、扁面朝两侧。
+          const handleAlongX = String(handleSide || 'z-').startsWith('x');
+          group.scale.set(handleAlongX ? majorRatio : minorRatio, 1, handleAlongX ? minorRatio : majorRatio);
+        }
       }
       return group;
     }
 
-    function makeRollBundle(orientation, color, rollCore = 'cored', bundleSpec = currentRollBundleSpec()) {
-      if (rollCore === 'coreless' || !bundleSpec || bundleSpec.count===1) return makeRoll(orientation,color,rollCore);
+    // 收缩膜贴合轮廓：countU×countV 卷网格的外凸包 + 相邻卷之间的轻微内凹勒痕。
+    // 返回平面坐标 (u,v) 内的 THREE.Shape，供沿卷轴方向挤出成膜体；网格各卷相切。
+    function buildBundleFilmShape(countU, countV, radius, bulge, pinch) {
+      const R = radius + bulge;
+      const cx = i => (i - (countU - 1) / 2) * 2 * radius;
+      const cy = j => (j - (countV - 1) / 2) * 2 * radius;
+      const shape = new THREE.Shape();
+      if (countU === 1 && countV === 1) {
+        shape.absarc(0, 0, R, 0, Math.PI * 2, false);
+        return shape;
+      }
+      // 从右上角起逆时针：顶边 → 左端 → 底边 → 右端。单排/单列时对应端为半圆帽。
+      const topV = cy(countV - 1) + R;
+      shape.moveTo(cx(countU - 1), topV);
+      if (countU > 1) {
+        for (let i = countU - 1; i > 0; i--) {
+          shape.lineTo(cx(i) - radius * .62, topV);
+          shape.quadraticCurveTo((cx(i) + cx(i - 1)) / 2, topV - pinch, cx(i - 1) + radius * .62, topV);
+        }
+      }
+      shape.lineTo(cx(0), topV);
+      if (countV === 1) {
+        shape.absarc(cx(0), 0, R, Math.PI / 2, Math.PI * 1.5, false);
+      } else {
+        shape.absarc(cx(0), cy(countV - 1), R, Math.PI / 2, Math.PI, false);
+        const leftU = cx(0) - R;
+        for (let j = countV - 1; j > 0; j--) {
+          shape.lineTo(leftU, cy(j) - radius * .62);
+          shape.quadraticCurveTo(leftU + pinch, (cy(j) + cy(j - 1)) / 2, leftU, cy(j - 1) + radius * .62);
+        }
+        shape.lineTo(leftU, cy(0));
+        shape.absarc(cx(0), cy(0), R, Math.PI, Math.PI * 1.5, false);
+      }
+      const bottomV = cy(0) - R;
+      if (countU > 1) {
+        for (let i = 0; i < countU - 1; i++) {
+          shape.lineTo(cx(i) + radius * .62, bottomV);
+          shape.quadraticCurveTo((cx(i) + cx(i + 1)) / 2, bottomV + pinch, cx(i + 1) - radius * .62, bottomV);
+        }
+      }
+      shape.lineTo(cx(countU - 1), bottomV);
+      if (countV === 1) {
+        shape.absarc(cx(countU - 1), 0, R, Math.PI * 1.5, Math.PI * 2.5, false);
+      } else {
+        shape.absarc(cx(countU - 1), cy(0), R, Math.PI * 1.5, Math.PI * 2, false);
+        const rightU = cx(countU - 1) + R;
+        for (let j = 0; j < countV - 1; j++) {
+          shape.lineTo(rightU, cy(j) + radius * .62);
+          shape.quadraticCurveTo(rightU - pinch, (cy(j) + cy(j + 1)) / 2, rightU, cy(j + 1) - radius * .62);
+        }
+        shape.lineTo(rightU, cy(countV - 1));
+        shape.absarc(cx(countU - 1), cy(countV - 1), R, 0, Math.PI / 2, false);
+      }
+      shape.closePath();
+      return shape;
+    }
+
+    // 卷膜包外膜：贴合收缩膜形态——截面沿各卷圆外缘的凸包（相邻卷之间有收缩勒痕），
+    // 沿卷轴方向包裹整叠，两端以同形热封端盖收口。世界轴对齐，随膜包各卷同一姿态网格。
+    function makeRollBundleFilm(orientation, bundleSpec) {
+      const allowance = packagingRules.rollBundleFilmAllowance;
+      const baseDims = resolveProductDimensions('roll', null);
+      const radius = baseDims.diameter / 2;
+      const axial = baseDims.axialWidth;
+      // 圆截面平面与挤出轴：upright → 平面(X,Z) 挤出 Y；horizontal → 平面(Z,Y) 挤出 X；lying → 平面(X,Y) 挤出 Z。
+      let uAxis, vAxis, countU, countV, extrudeCount;
+      if (orientation === 'horizontal') {
+        uAxis = new THREE.Vector3(0, 0, 1); vAxis = new THREE.Vector3(0, 1, 0);
+        countU = bundleSpec.z; countV = bundleSpec.y; extrudeCount = bundleSpec.x;
+      } else if (orientation === 'lying') {
+        uAxis = new THREE.Vector3(1, 0, 0); vAxis = new THREE.Vector3(0, 1, 0);
+        countU = bundleSpec.x; countV = bundleSpec.y; extrudeCount = bundleSpec.z;
+      } else {
+        uAxis = new THREE.Vector3(1, 0, 0); vAxis = new THREE.Vector3(0, 0, 1);
+        countU = bundleSpec.x; countV = bundleSpec.z; extrudeCount = bundleSpec.y;
+      }
+      const wAxis = uAxis.clone().cross(vAxis).normalize();
+      const group = new THREE.Group();
+      const bulge = allowance / 2;
+      const pinch = Math.min(.05, radius * .09);
+      const shape = buildBundleFilmShape(countU, countV, radius, bulge, pinch);
+      const depth = extrudeCount * axial + allowance;
+      const quaternion = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(uAxis, vAxis, wAxis));
+      // 膜体：饱和蓝半实收缩膜，颜色突出、卷体轮廓仍可辨认。
+      const filmGeo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 24, steps: 1 });
+      const film = new THREE.Mesh(filmGeo, new THREE.MeshPhysicalMaterial({ color:0x1f6fd6, transparent:true, opacity:.30, roughness:.32, metalness:0, clearcoat:.55, clearcoatRoughness:.35, side:THREE.DoubleSide, depthWrite:false }));
+      film.renderOrder = 8; film.quaternion.copy(quaternion);
+      film.position.copy(wAxis.clone().multiplyScalar(-depth / 2));
+      group.add(film);
+      // 两端热封端盖：同形薄片，透明度略高，读出收缩膜封口。
+      const sealDepth = .024;
+      const sealGeo = new THREE.ExtrudeGeometry(shape, { depth: sealDepth, bevelEnabled: false, curveSegments: 24, steps: 1 });
+      const sealMat = new THREE.MeshPhysicalMaterial({ color:0x3d86e0, transparent:true, opacity:.46, roughness:.40, metalness:0, clearcoat:.30, side:THREE.DoubleSide, depthWrite:false });
+      [0, depth - sealDepth].forEach(offset => {
+        const seal = new THREE.Mesh(sealGeo, sealMat);
+        seal.renderOrder = 9; seal.quaternion.copy(quaternion);
+        seal.position.copy(wAxis.clone().multiplyScalar(-depth / 2 + offset));
+        group.add(seal);
+      });
+      // 轮廓线：两端截面轮廓圈，连续实线读出包装边界。
+      const outlinePts = shape.getPoints(48).map(p => new THREE.Vector3(p.x, p.y, 0));
+      const outlineGeo = new THREE.BufferGeometry().setFromPoints(outlinePts);
+      const outlineMat = new THREE.LineBasicMaterial({ color:0x17529e, transparent:true, opacity:.62, depthTest:true, depthWrite:false });
+      [0, depth].forEach(offset => {
+        const loop = new THREE.LineLoop(outlineGeo, outlineMat);
+        loop.renderOrder = 12; loop.quaternion.copy(quaternion);
+        loop.position.copy(wAxis.clone().multiplyScalar(-depth / 2 + offset));
+        group.add(loop);
+      });
+      // 供标签定位：截面 u 向跨度（覆盖 2 粒卫卷筒芯）与两端端面中心。
+      const spanU = countU * 2 * radius + allowance;
+      const centerDistance = 2 * radius;          // 两粒卫卷中心距（相邻卷圆心距 = 卷径）
+      const vHalfSpan = countV * radius + bulge;  // v 向立面到中心距离
+      return { group, wAxis, depth, spanU, uAxis, vAxis, centerDistance, vHalfSpan };
+    }
+
+    function makeRollBundle(orientation, color, rollCore = 'cored', bundleSpec = currentRollBundleSpec(), handleSide = 'z-') {
+      if (rollCore === 'coreless' || !bundleSpec || bundleSpec.count===1) return makeRoll(orientation,color,rollCore,handleSide);
       const group=new THREE.Group();
         const flags = detailFlags();
-        const single=rollUnitDims(orientation),gap=0;
+        const single=rollUnitDims(orientation,null,rollCore,handleSide),gap=packagingRules.rollBundleGap;
       const step=[single[0]+gap,single[1]+gap,single[2]+gap];
       const center=[(bundleSpec.x-1)*step[0]/2,(bundleSpec.y-1)*step[1]/2,(bundleSpec.z-1)*step[2]/2];
       for(let y=0;y<bundleSpec.y;y++) for(let z=0;z<bundleSpec.z;z++) for(let x=0;x<bundleSpec.x;x++) {
-        const roll=makeRoll(orientation,color,rollCore);
+        const roll=makeRoll(orientation,color,rollCore,handleSide);
         roll.position.set(x*step[0]-center[0],y*step[1]-center[1],z*step[2]-center[2]); group.add(roll);
       }
-      const size=dimsFor('roll',orientation,'z-',bundleSpec);
-      const filmGeo=new RoundedBoxGeometry(size[0],size[1],size[2],4,.055);
-      const film=new THREE.Mesh(filmGeo,new THREE.MeshPhysicalMaterial({color:0x65aee6,transparent:true,opacity:.18,roughness:.34,clearcoat:.50,side:THREE.DoubleSide,depthWrite:false}));
-      film.renderOrder=8; group.add(film);
-      const outline=edgeLines(filmGeo,0x246ea8,.70); outline.renderOrder=12; group.add(outline);
-      const logoWidth=Math.min(.68,size[0]*.34),logoHeight=logoWidth*.58;
-      if (flags.logo) addVindaLogoDecal(group,logoWidth,logoHeight,new THREE.Vector3(-size[0]*.22,size[1]/2+.008,0),new THREE.Euler(-Math.PI/2,0,0),.86);
-      if (flags.label) { const label=makeLabelSprite(`${bundleSpec.count}卷`,'#175cd3'); label.position.set(size[0]*.18,size[1]/2+.025,0); label.scale.set(.58,.21,1); group.add(label); }
+      const size=dimsFor('roll',orientation,handleSide,bundleSpec);
+      const film=makeRollBundleFilm(orientation,bundleSpec);
+      group.add(film.group);
+      // 品牌标识贴最大面（与膜包姿态网格一致）。
+      const minAxis = size[0] <= size[1] && size[0] <= size[2] ? 0 : (size[1] <= size[2] ? 1 : 2);
+      const logoWidth=Math.min(.92,(minAxis===0?size[1]:size[0])*.42),logoHeight=logoWidth*.58;
+      if (flags.logo) {
+        if (minAxis === 2) {
+          addVindaLogoDecal(group,logoWidth,logoHeight,new THREE.Vector3(-size[0]*.18,0,size[2]/2+.010),new THREE.Euler(0,0,0),.86);
+        } else if (minAxis === 1) {
+          addVindaLogoDecal(group,logoWidth,logoHeight,new THREE.Vector3(-size[0]*.18,size[1]/2+.010,0),new THREE.Euler(-Math.PI/2,0,0),.86);
+        } else {
+          addVindaLogoDecal(group,logoWidth,logoHeight,new THREE.Vector3(size[0]/2+.010,0,-size[2]*.18),new THREE.Euler(0,Math.PI/2,0),.86);
+        }
+      }
+      if (flags.label) {
+        // 上方端面贴纸：固定贴合在立式上方的端面（两粒卫卷筒芯所在面），长度 = 两粒卫卷中心距（卷径），不随相机旋转。
+        const stickerW = film.centerDistance;
+        const stickerH = stickerW * .42;
+        const sticker = makeBundleSticker(`${bundleSpec.count}卷`, stickerW, stickerH);
+        const upSign = film.wAxis.y < 0 ? -1 : 1;
+        const normal = film.wAxis.clone().multiplyScalar(upSign); // 上方端面外法线（直立时为 +Y）
+        const tangent = film.uAxis;                               // 长度方向（两粒卫卷并列方向）
+        const bitangent = normal.clone().cross(tangent).normalize();
+        sticker.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tangent, bitangent, normal));
+        // 文字方向旋转 180°（绕端面法线），使文字从默认视角正向阅读。
+        sticker.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI));
+        sticker.position.copy(normal.clone().multiplyScalar(film.depth / 2 + .006));
+        group.add(sticker);
+      }
       return group;
     }
 
     function makeProduct(type, orientation, color, handleSide = 'z-', rollCore = ui.rollCore.value, bundleSpec = currentRollBundleSpec(), softdrawVariant = ui.softdrawVariant.value, productHandleFolded = false, hangingSideDirection = ui.hangingSideDirection.value) {
-      if (type === 'roll') return makeRollBundle(orientation,color,rollCore,bundleSpec);
+      if (type === 'roll') return makeRollBundle(orientation,color,rollCore,bundleSpec,handleSide);
       if (type === 'softdraw') return makeSoftdraw(orientation,color,handleSide,softdrawVariant,productHandleFolded,hangingSideDirection);
       return makeHandkerchief(orientation, color);
     }
@@ -1972,6 +2152,21 @@
       const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}));
       sprite.scale.set(.72,.27,1); sprite.renderOrder = 20; return sprite;
+    }
+
+    // 卷膜包上方端面贴纸：固定平面（非 Sprite），白底 + 品牌蓝描边/文字，长度 = 两粒卫卷中心距，文字不随相机旋转。
+    function makeBundleSticker(text, width, height) {
+      const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 108;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(6, 6, 244, 96, 20); ctx.fill();
+      ctx.strokeStyle = '#1f6fd6'; ctx.lineWidth = 5; ctx.stroke();
+      ctx.fillStyle = '#1f6fd6'; ctx.font = '700 46px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 128, 54);
+      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 8;
+      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+      const sticker = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+      sticker.renderOrder = 12;
+      return sticker;
     }
 
     // 装箱正式名称：独立于普通“显示标签”开关，始终悬浮在箱体上方并朝向相机。
@@ -2193,7 +2388,7 @@
       const softdrawVariant = ui.softdrawVariant.value;
       const hangingSideDirection = ui.hangingSideDirection.value;
       const d = dimsFor(type,orientation,ui.handleSide.value,bundleSpec,currentDimensionOverride(type),ui.rollCore.value,softdrawVariant,hangingSideDirection);
-      const r = Math.max(1,Math.min(12,Number(ui.rows.value)||1));
+      const r = Math.max(1,Math.min(25,Number(ui.rows.value)||1));
       const c = Math.max(1,Math.min(20,Number(ui.cols.value)||1));
       const l = Math.max(1,Math.min(8,Number(ui.layers.value)||1));
       const gap = Number(ui.gap.value)/100;
@@ -2661,7 +2856,7 @@
       const orientation = ui.orientation.value;
       const bundleSpec = type==='roll' ? currentRollBundleSpec() : {count:1,label:'单粒'};
       const d = dimsFor(type, orientation, ui.handleSide.value, bundleSpec, currentDimensionOverride(type),ui.rollCore.value,ui.softdrawVariant.value,ui.hangingSideDirection.value);
-      const r = Math.max(1, Math.min(12, Number(ui.rows.value)||1));
+      const r = Math.max(1, Math.min(25, Number(ui.rows.value)||1));
       const c = Math.max(1, Math.min(20, Number(ui.cols.value)||1));
       const l = Math.max(1, Math.min(8, Number(ui.layers.value)||1));
       const gap = Number(ui.gap.value)/100;
@@ -2736,12 +2931,12 @@
       const axialRatio = baseDims.axialWidth > 0 ? targetDims.axialWidth / baseDims.axialWidth : 1;
       const { coreOuterRadius, holeRadius } = rollCoreVisualRadii(dimensionOverride);
       const sizeScale = new THREE.Vector3(diaRatio, axialRatio, diaRatio);
-      const bodyGeo = new THREE.CylinderGeometry(.48,.48,1.1,56,2,false);
+      const bodyGeo = new THREE.CylinderGeometry(.49,.49,1.15,56,2,false);
       const body = new THREE.InstancedMesh(bodyGeo, new THREE.MeshStandardMaterial({color:0xf7f5ef,roughness:.94,metalness:0}), count);
       body.castShadow = true; body.receiveShadow = true;
-      const core = new THREE.InstancedMesh(new THREE.CylinderGeometry(coreOuterRadius,coreOuterRadius,1.112,36), new THREE.MeshStandardMaterial({color:0xc49a67,roughness:.96}), count);
-      const hole = new THREE.InstancedMesh(new THREE.CylinderGeometry(holeRadius,holeRadius,1.116,32), new THREE.MeshBasicMaterial({color:0x6f5741}), count);
-      const film = new THREE.InstancedMesh(new THREE.CylinderGeometry(.492,.492,1.112,56,1,true), new THREE.MeshPhysicalMaterial({color:0xcfeaff,transparent:true,opacity:.18,roughness:.30,clearcoat:.58,side:THREE.DoubleSide,depthWrite:false}), count);
+      const core = new THREE.InstancedMesh(new THREE.CylinderGeometry(coreOuterRadius,coreOuterRadius,1.15,36), new THREE.MeshStandardMaterial({color:0xc49a67,roughness:.96}), count);
+      const hole = new THREE.InstancedMesh(new THREE.CylinderGeometry(holeRadius,holeRadius,1.152,32), new THREE.MeshBasicMaterial({color:0x6f5741}), count);
+      const film = new THREE.InstancedMesh(new THREE.CylinderGeometry(.5,.5,1.15,56,1,true), new THREE.MeshPhysicalMaterial({color:0xcfeaff,transparent:true,opacity:.18,roughness:.30,clearcoat:.58,side:THREE.DoubleSide,depthWrite:false}), count);
       film.renderOrder = 6;
       const meshes = [body, core, hole, film];
       meshes.forEach(m => group.add(m));
@@ -2767,8 +2962,10 @@
       const directBundleSpec=ui.category.value==='roll'?rollBundleSpec(plan.rollBundleMode,plan.rollBundleX,plan.rollBundleZ,plan.rollBundleY,plan.rollCore):{count:1};
       const sourceSize = sourceMetrics ? getMidpackProxySize(sourceMetrics) : dimsFor(ui.category.value,productOrientation,ui.handleSide.value,directBundleSpec,currentDimensionOverride(ui.category.value),plan.rollCore,ui.softdrawVariant.value,ui.hangingSideDirection.value);
       const itemQuaternion = sourceMetrics ? packageUnitOrientationQuaternion(ui.category.value,plan.unitPosture,plan.unitFacing,ui.handleSide.value) : new THREE.Quaternion();
-      const d = sourceMetrics ? rotatedSize(sourceSize,itemQuaternion) : sourceSize;
-      const r = mode === 'single' ? 1 : Math.max(1,Math.min(12,Number(plan.rows)||1));
+      // 直装剩余旋转（绕竖直轴 90°）：单粒模板先按姿态定向，再整体旋转；尺寸同步按旋转后包络换算。
+      const directSpinQuat = sourceMetrics ? new THREE.Quaternion() : directSpinQuaternion(plan.directSpin);
+      const d = sourceMetrics ? rotatedSize(sourceSize,itemQuaternion) : rotatedSize(sourceSize,directSpinQuat);
+      const r = mode === 'single' ? 1 : Math.max(1,Math.min(25,Number(plan.rows)||1));
       const c = mode === 'single' ? 1 : Math.max(1,Math.min(20,Number(plan.cols)||1));
       const l = mode === 'single' ? 1 : Math.max(1,Math.min(8,Number(plan.layers)||1));
       const unitLeafCount = (sourceType === 'midpack' && showOuterProducts) ? r*c*l*(sourceMetrics?.count || 1) : r*c*l;
@@ -2789,6 +2986,8 @@
       // 直装单粒：模型外观按自定义尺寸缩放（中包代理已在 makeMidpackProductContents 内缩放）。
       if (!sourceMetrics) {
         applyProductVisualScale(itemTemplate,productScaleVector(ui.category.value,productOrientation,ui.handleSide.value,directBundleSpec,currentDimensionOverride(ui.category.value)));
+        // 剩余旋转叠加在产品姿态之后（世界系先乘），每个克隆单元继承同一旋转。
+        if (plan.directSpin !== 'none') itemTemplate.quaternion.premultiply(directSpinQuat);
       }
       const targets=[];
       for (let y=0;y<l;y++) for (let z=0;z<c;z++) for (let x=0;x<r;x++) {
@@ -2860,7 +3059,7 @@
       const data = catalog[type];
       const bundleSpec=type==='roll'?currentRollBundleSpec():{count:1,label:'单粒'};
       const d = dimsFor(type, orientation, ui.handleSide.value,bundleSpec,currentDimensionOverride(type),ui.rollCore.value,ui.softdrawVariant.value,ui.hangingSideDirection.value);
-      const r = mode === 'single' ? 1 : Math.max(1, Math.min(12, Number(ui.rows.value)||1));
+      const r = mode === 'single' ? 1 : Math.max(1, Math.min(25, Number(ui.rows.value)||1));
       const c = mode === 'single' ? 1 : Math.max(1, Math.min(20, Number(ui.cols.value)||1));
       const l = mode === 'single' ? 1 : Math.max(1, Math.min(8, Number(ui.layers.value)||1));
       const gap = Number(ui.gap.value)/100;
@@ -3197,7 +3396,8 @@
         syncOuterOrientationUi(
           state.outerUnitPosture || state.outerValues?.unitPosture,
           state.outerUnitFacing || state.outerValues?.unitFacing,
-          state.outerProductOrientation || state.outerValues?.productOrientation
+          state.outerProductOrientation || state.outerValues?.productOrientation,
+          state.outerDirectSpin || state.outerValues?.directSpin || 'none'
         );
         ui.outerStackMode.value = state.outerStackMode || ui.outerStackMode.value;
         ui.outerRows.value = state.outerRows ?? ui.outerRows.value; ui.outerCols.value = state.outerCols ?? ui.outerCols.value; ui.outerLayers.value = state.outerLayers ?? ui.outerLayers.value;
@@ -3425,7 +3625,7 @@
       ui.outerSpacing.value = values.spacing; ui.outerMargin.value = values.margin;
       ui.outerPresetName.value = values.name;
       ui.cartonFormalNameOverride.value = values.formalNameOverride || '';
-      syncOuterOrientationUi(values.unitPosture, values.unitFacing, values.productOrientation);
+      syncOuterOrientationUi(values.unitPosture, values.unitFacing, values.productOrientation, values.directSpin);
       ui.outerStackMode.value = values.stackMode;
       ui.caseDividerMode.value = values.dividerMode;
       ui.outerPreset.value = 'temporary';
