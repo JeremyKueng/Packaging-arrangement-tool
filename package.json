@@ -1,0 +1,14 @@
+{
+  "name": "midpack-dynamic-layout-tool",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "纸手帕、软抽、卫卷中包三维动态排列工具",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1",
+    "three": "0.169.0"
+  }
+}

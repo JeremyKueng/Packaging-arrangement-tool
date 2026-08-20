@@ -1,0 +1,15 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.py[cod]
+.workbuddy/
+tmp/
+*.log
+.env
+.env.*
+
+# macOS launcher build artifacts (source: launcher.c / 启动中包排列工具.app)
+启动中包排列工具.app/
+build/
+dist/
+

@@ -1,0 +1,222 @@
+// ===== 装箱正式名称 =====
+//
+// 命名只用于业务显示，不参与三维姿态计算，也不替代 unitPosture / unitFacing /
+// productOrientation 等稳定编码。以后调整术语时，只需修改 CARTON_POSTURE_NAME_MAP；
+// 已保存方案无需迁移。单个方案还可通过 formalNameOverride 覆盖系统生成名称。
+
+import * as THREE from 'three';
+import { catalog, packagingRules, midpackHeightScale } from './dimensions.js';
+import { dimsFor, rotatedSize, productOrientationQuaternion, packageUnitOrientationQuaternion } from './geometry-core.js';
+
+export const CARTON_POSTURE_NAME_MAP = Object.freeze({
+  'rect.flat.along': '顺箱长平放',
+  'rect.flat.cross': '横箱长平放',
+  'rect.side.along': '顺箱长侧立',
+  'rect.side.cross': '横箱长侧立',
+  'rect.end.width-along': '宽边顺箱长端立',
+  'rect.end.thickness-along': '厚边顺箱长端立',
+  'roll.vertical': '立式装箱',
+  'roll.axis-along': '卷轴顺箱长',
+  'roll.axis-cross': '卷轴横箱长',
+});
+
+const PRODUCT_SHORT_NAME = { handkerchief: '纸手帕', softdraw: '软抽', roll: '卫卷' };
+const WORLD_AXES = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+};
+
+function safeCount(value, fallback = 1) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function safeDecimal(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function rollBundleSpec(snapshot = {}) {
+  if (snapshot.rollCore === 'coreless' || snapshot.rollBundleMode === 'single' || !snapshot.rollBundleMode) {
+    return { count: 1, x: 1, z: 1, y: 1 };
+  }
+  if (snapshot.rollBundleMode === '4') return { count: 4, x: 2, z: 2, y: 1 };
+  if (snapshot.rollBundleMode === '6') return { count: 6, x: 2, z: 3, y: 1 };
+  const x = safeCount(snapshot.rollBundleX);
+  const z = safeCount(snapshot.rollBundleZ);
+  const y = safeCount(snapshot.rollBundleY);
+  return { count: x * z * y, x, z, y };
+}
+
+// 闭箱后 X/Z 相差不超过 tolerance 时固定以 X 为箱长，避免微小余量或浮点误差
+// 导致同一方案在“顺箱长/横箱长”之间跳变。
+export function resolveCartonLongAxis(sizeX, sizeZ, tolerance = 0.03) {
+  const x = Math.max(0, Number(sizeX) || 0);
+  const z = Math.max(0, Number(sizeZ) || 0);
+  const largest = Math.max(x, z, 1e-9);
+  if (Math.abs(x - z) / largest <= tolerance) return 'x';
+  return x > z ? 'x' : 'z';
+}
+
+export function cartonPostureName(code, nameMap = CARTON_POSTURE_NAME_MAP) {
+  return nameMap[code] || code || '未定义装箱姿态';
+}
+
+function dominantAxis(vector) {
+  const absolute = { x: Math.abs(vector.x), y: Math.abs(vector.y), z: Math.abs(vector.z) };
+  return Object.entries(absolute).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function classifyRectangularBasis(basis, cartonLongAxis) {
+  const verticalPhysicalAxis = Object.keys(basis).find(key => dominantAxis(basis[key]) === 'y') || 'height';
+  const longPhysicalAxis = Object.keys(basis).find(key => dominantAxis(basis[key]) === cartonLongAxis) || 'length';
+  if (verticalPhysicalAxis === 'height') {
+    return longPhysicalAxis === 'length' ? 'rect.flat.along' : 'rect.flat.cross';
+  }
+  if (verticalPhysicalAxis === 'width') {
+    return longPhysicalAxis === 'length' ? 'rect.side.along' : 'rect.side.cross';
+  }
+  return longPhysicalAxis === 'width' ? 'rect.end.width-along' : 'rect.end.thickness-along';
+}
+
+function directRectangularBasis(type, orientation, sourceSnapshot = {}) {
+  const quaternion = productOrientationQuaternion(
+    type,
+    orientation,
+    sourceSnapshot.handleSide || 'z-',
+    sourceSnapshot.softdrawVariant || 'standard',
+    sourceSnapshot.hangingSideDirection || 'parallel',
+  );
+  return {
+    length: WORLD_AXES.x.clone().applyQuaternion(quaternion),
+    width: WORLD_AXES.z.clone().applyQuaternion(quaternion),
+    height: WORLD_AXES.y.clone().applyQuaternion(quaternion),
+  };
+}
+
+function directSourceGeometry(productType, sourceSnapshot) {
+  const bundleSpec = productType === 'roll' ? rollBundleSpec(sourceSnapshot) : { count: 1 };
+  const orientation = sourceSnapshot.orientation || catalog[productType].orientations[0][0];
+  const size = dimsFor(
+    productType,
+    orientation,
+    sourceSnapshot.handleSide || 'z-',
+    bundleSpec,
+    sourceSnapshot.dimensionsMm,
+    sourceSnapshot.rollCore || 'cored',
+    sourceSnapshot.softdrawVariant || 'standard',
+    sourceSnapshot.hangingSideDirection || 'parallel',
+  );
+  if (productType === 'roll') {
+    const rollAxis = orientation === 'upright' ? 'y' : (orientation === 'horizontal' ? 'x' : 'z');
+    return { size, rollAxis, bundleSpec };
+  }
+  return { size, basis: directRectangularBasis(productType, orientation, sourceSnapshot), bundleSpec };
+}
+
+function midpackSourceGeometry(productType, sourceSnapshot, presetSnapshot) {
+  const bundleSpec = productType === 'roll' ? rollBundleSpec(sourceSnapshot) : { count: 1 };
+  const single = dimsFor(
+    productType,
+    sourceSnapshot.orientation || catalog[productType].orientations[0][0],
+    sourceSnapshot.handleSide || 'z-',
+    bundleSpec,
+    sourceSnapshot.dimensionsMm,
+    sourceSnapshot.rollCore || 'cored',
+    sourceSnapshot.softdrawVariant || 'standard',
+    sourceSnapshot.hangingSideDirection || 'parallel',
+  );
+  const rows = safeCount(sourceSnapshot.rows);
+  const cols = safeCount(sourceSnapshot.cols);
+  const layers = safeCount(sourceSnapshot.layers);
+  const localSize = [
+    rows * single[0],
+    layers * single[1] * midpackHeightScale(productType),
+    cols * single[2],
+  ];
+  const [padX, padY, padZ] = packagingRules.bagPadding;
+  const proxySize = [localSize[0] + padX, localSize[1] + padY, localSize[2] + padZ];
+  const quaternion = packageUnitOrientationQuaternion(
+    productType,
+    presetSnapshot.unitPosture || 'flat',
+    presetSnapshot.unitFacing || 'z-',
+    sourceSnapshot.handleSide || 'z-',
+  );
+  const localLengthAxis = proxySize[0] >= proxySize[2] ? 'x' : 'z';
+  const localWidthAxis = localLengthAxis === 'x' ? 'z' : 'x';
+  const basis = {
+    length: WORLD_AXES[localLengthAxis].clone().applyQuaternion(quaternion),
+    width: WORLD_AXES[localWidthAxis].clone().applyQuaternion(quaternion),
+    height: WORLD_AXES.y.clone().applyQuaternion(quaternion),
+  };
+  return { size: rotatedSize(proxySize, quaternion), basis, bundleSpec };
+}
+
+function directSourceLabel(productType, snapshot, bundleSpec) {
+  if (productType !== 'roll') {
+    if (productType === 'softdraw' && snapshot.softdrawVariant === 'hanging-bottom') return '悬挂式底抽单包';
+    return `${PRODUCT_SHORT_NAME[productType]}单包`;
+  }
+  if (bundleSpec.count > 1) return `${bundleSpec.count}卷膜包`;
+  return snapshot.rollCore === 'coreless' ? '无芯卫卷' : '有芯卫卷';
+}
+
+function midpackSourceLabel(sourcePresetName) {
+  const name = String(sourcePresetName || '当前中包').trim() || '当前中包';
+  return name.endsWith('中包') ? name : `${name}中包`;
+}
+
+// 根据闭箱后的最终 X/Z 尺寸判定箱长，再生成“装入规格－相对箱长姿态－X×Z×Y”。
+// formalNameOverride 非空时仅覆盖显示文字，系统推导 code / systemFormalName 仍保留供审计。
+export function deriveCartonNaming({
+  productType,
+  sourceType = 'midpack',
+  sourceSnapshot = {},
+  sourcePresetName = '',
+  presetSnapshot = {},
+  nameMap = CARTON_POSTURE_NAME_MAP,
+} = {}) {
+  if (!catalog[productType]) return null;
+  const geometry = sourceType === 'product'
+    ? directSourceGeometry(productType, sourceSnapshot)
+    : midpackSourceGeometry(productType, sourceSnapshot, presetSnapshot);
+  const rows = safeCount(presetSnapshot.rows);
+  const cols = safeCount(presetSnapshot.cols);
+  const layers = safeCount(presetSnapshot.layers);
+  const spacing = safeDecimal(presetSnapshot.spacing);
+  const margin = safeDecimal(presetSnapshot.margin, 0.05);
+  const cartonSize = [
+    rows * geometry.size[0] + Math.max(0, rows - 1) * spacing + margin * 2,
+    layers * geometry.size[1] + Math.max(0, layers - 1) * spacing + margin * 2,
+    cols * geometry.size[2] + Math.max(0, cols - 1) * spacing + margin * 2,
+  ];
+  const cartonLongAxis = resolveCartonLongAxis(cartonSize[0], cartonSize[2]);
+  let code;
+  if (sourceType === 'product' && productType === 'roll') {
+    code = geometry.rollAxis === 'y'
+      ? 'roll.vertical'
+      : (geometry.rollAxis === cartonLongAxis ? 'roll.axis-along' : 'roll.axis-cross');
+  } else {
+    code = classifyRectangularBasis(geometry.basis, cartonLongAxis);
+  }
+  const postureName = cartonPostureName(code, nameMap);
+  const sourceLabel = sourceType === 'product'
+    ? directSourceLabel(productType, sourceSnapshot, geometry.bundleSpec)
+    : midpackSourceLabel(sourcePresetName);
+  const arrangement = `${rows}×${cols}×${layers}`;
+  const systemFormalName = `${sourceLabel}－${postureName}－${arrangement}`;
+  const override = String(presetSnapshot.formalNameOverride || '').trim();
+  return {
+    code,
+    postureName,
+    sourceLabel,
+    arrangement,
+    systemFormalName,
+    formalName: override || systemFormalName,
+    isOverridden: Boolean(override),
+    cartonLongAxis,
+    cartonLongDirection: cartonLongAxis === 'x' ? 'X 行方向' : 'Z 列方向',
+    cartonSize,
+  };
+}
