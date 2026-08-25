@@ -515,7 +515,7 @@ function addRowLayout(rows, axis, options, posture = 'normal') {
   return placements;
 }
 
-function sequenceCandidates(options, axis, posture = 'normal') {
+function sequenceCandidates(options, axis, posture = 'normal', enforceFace = true) {
   const pallet = options.usablePallet || options.pallet;
   const a = orientedSize(options.unitSizeMm, 'A', posture);
   const b = orientedSize(options.unitSizeMm, 'B', posture);
@@ -533,7 +533,7 @@ function sequenceCandidates(options, axis, posture = 'normal') {
       for (let length = 1; length <= maxRows; length++) {
         const rows = sequence.slice(0, length);
         const placements = addRowLayout(rows, axis, options, posture);
-        if (placements.length && normalizeEdgeConstraint(placements, options)) candidates.push({ placements, pattern: rows, axis, posture });
+        if (placements.length && (!enforceFace || normalizeEdgeConstraint(placements, options))) candidates.push({ placements, pattern: rows, axis, posture });
       }
     }
   }
@@ -589,15 +589,23 @@ function layoutSignature(layer) {
 function layerOptions(options, layerIndex, posture = 'normal') {
   const patterns = patternVariants(options, layerIndex);
   const isEdgeTemplate = options.faceConstraint.enabled && options.faceConstraint.layout === 'edge-exposure';
-  const candidates = isEdgeTemplate
+  // 单边展示约束只约束正常姿态层。侧倒（H 面向下）时长侧面必然朝上，与
+  // “L 面朝托盘长边”在几何上互斥；若把约束套到侧倒层，候选会被过滤为空、
+  // 极限侧倒静默失效。因此侧倒层豁免该约束，展示面由下部正常姿态层保证。
+  const exemptFromFaceConstraint = posture === 'side-lay';
+  const templateApplies = isEdgeTemplate && !exemptFromFaceConstraint;
+  const candidates = templateApplies
     ? edgeExposureLayouts(options, posture)
-    : [...sequenceCandidates(options, 'z', posture), ...sequenceCandidates(options, 'x', posture)];
+    : [
+        ...sequenceCandidates(options, 'z', posture, !exemptFromFaceConstraint),
+        ...sequenceCandidates(options, 'x', posture, !exemptFromFaceConstraint),
+      ];
   const requiredPattern = patterns.join('');
   const valid = candidates.filter(item => placementsValid(item.placements, options.usablePallet || options.pallet, options.overhangMm));
   const filtered = valid.filter(item => {
     // 单边模板的 A/B 是同一层内部的固定结构；“全部同向”在此表示各层复用该模板，
     // 不能再用“所有单件均为 A/B”把它误过滤掉。
-    if (isEdgeTemplate) return true;
+    if (templateApplies) return true;
     if (options.layerStrategy === 'same') return item.placements.every(item => item.orientation === patterns[0]);
     if (options.layerStrategy === 'alternate') return item.placements.every(item => item.orientation === patterns[0]);
     return true;

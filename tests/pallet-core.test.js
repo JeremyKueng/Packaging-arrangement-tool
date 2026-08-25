@@ -359,3 +359,52 @@ test('优化结果按稳定输入做有限LRU缓存，且返回值与缓存隔�
   assert.ok(stats.size <= stats.maxEntries);
   assert.ok(stats.maxEntries > 0);
 });
+
+test('单边展示选长侧面时，顶层极限侧倒仍然生效（侧倒层豁免展示面约束）', () => {
+  clearPalletLayoutCache();
+  // 400×180×280 软包，可摆高 1040：
+  // 正常层（长侧面朝托盘长边的单边模板）每层 15 件、层高 280 → 3 层 45 件，余 200 mm。
+  // 侧倒层高 = 宽 180 ≤ 余量；豁免展示约束后可整层侧倒追加 10 件 → 总数 55。
+  const input = {
+    packageType: 'softpack',
+    unitSizeMm: { lengthMm: 400, widthMm: 180, heightMm: 280 },
+    loadHeightMm: 1040,
+    allowedOrientations: ['A', 'B'],
+    layerStrategy: 'cyclic-interlock',
+    softpackOptions: { cornerProtectorsEnabled: false, topSideLayMode: 'auto' },
+    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
+  };
+  const plan = optimizePalletLayout(input);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.topSideLayApplied, true);
+  assert.equal(plan.totalCount, 55);
+  assert.ok(plan.layers.at(-1).every(item => item.posture === 'side-lay'), '顶层应为整层侧倒');
+  // 正常姿态层仍必须满足展示约束：贴着指定长边（z-）的展示排为 L 面朝外；
+  // 模板内部的旋转填充件不在此约束范围内。
+  for (const layer of plan.layers.slice(0, -1)) {
+    const minZ = Math.min(...layer.map(item => item.zMm - item.widthMm / 2));
+    for (const item of layer) {
+      if (Math.abs((item.zMm - item.widthMm / 2) - minZ) < 0.01) {
+        assert.equal(item.faceByWorldAxis?.z, 'L');
+      }
+    }
+  }
+  assertLayerGeometry(plan);
+  assert.ok(plan.stability.boundaryValid && plan.stability.overlapFree);
+});
+
+test('关闭顶层侧倒时，同一长侧面单边展示方案回到纯正常姿态结果', () => {
+  const input = {
+    packageType: 'softpack',
+    unitSizeMm: { lengthMm: 400, widthMm: 180, heightMm: 280 },
+    loadHeightMm: 1040,
+    allowedOrientations: ['A', 'B'],
+    layerStrategy: 'cyclic-interlock',
+    softpackOptions: { cornerProtectorsEnabled: false, topSideLayMode: 'off' },
+    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
+  };
+  const plan = optimizePalletLayout(input);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.topSideLayApplied, false);
+  assert.equal(plan.totalCount, 45);
+});
