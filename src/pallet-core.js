@@ -19,9 +19,6 @@ const EPS = 1e-6;
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
 export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v3';
 
-// 分层规则中“第二层模式”的可选值：自由寻优 / 长侧面单边展示 / 短侧面单边展示。
-export const PALLET_SECOND_LAYER_MODES = Object.freeze(['free', 'long-side', 'short-side']);
-
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
   if (typeof structuredClone === 'function') {
@@ -197,16 +194,15 @@ export function normalizePalletOptions(options = {}) {
   const faceLayout = PALLET_FACE_LAYOUTS.includes(face.layout)
     ? face.layout
     : (face.enabled ? 'edge-exposure' : 'auto');
-  // 分层规则（v3）：软包叠板的内建算法结构，不再需要单独开关——
-  // 规则一：顶层侧倒件相对下层轮廓每侧最大悬出（默认 10 mm）；
-  // 规则二：第二层独立码放模式（无限制/长侧面/短侧面单边展示）；
-  // 规则三：第三层起每层行余量下限（默认 50 mm，长边第一排允许贴边）。
+  // 分层规则（v3）：软包叠板的内建算法结构，按约束先后顺序生效——
+  // 约束一：顶层侧倒件相对下层轮廓每侧最大悬出（默认 10 mm）；
+  // 约束二：整板展示面模板（复用 faceConstraint“指定托盘长边展示面”）；
+  // 约束三：每一层的行余量下限（默认 50 mm，长边第一排允许贴边）。
   // 纸箱不启用；显式传入 layerRules.enabled=false 可强制关闭。
   const rulesRaw = plain(raw.layerRules) ? raw.layerRules : {};
   const layerRules = {
     enabled: rulesRaw.enabled != null ? Boolean(rulesRaw.enabled) : packageType === 'softpack',
     sideLayMaxOverhangMm: clamp(finite(rulesRaw.sideLayMaxOverhangMm, 10), 0, 100),
-    secondLayerMode: PALLET_SECOND_LAYER_MODES.includes(rulesRaw.secondLayerMode) ? rulesRaw.secondLayerMode : 'free',
     minRowMarginMm: clamp(finite(rulesRaw.minRowMarginMm, 50), 0, 500),
   };
   const cornerProtection = {
@@ -455,34 +451,45 @@ function edgeExposureLayouts(options, posture = 'normal') {
   if (edgeCount < 1 || fillColumns < 1 || maxEdgeRows < 1) return [];
 
   const sign = constraint.palletEdge === 'z+' ? 1 : -1;
+  // 分层规则三开启时，填充区需要能留出行余量；此时按“填满 → 逐列缩短”枚举，
+  // 直到某列数满足行余量（长边第一排展示排允许贴边，天然豁免）。
+  const wantMarginMm = options.layerRules?.enabled ? options.layerRules.minRowMarginMm : 0;
   const output = [];
   for (let edgeRows = 1; edgeRows <= maxEdgeRows; edgeRows++) {
     const remainingWidth = pallet.widthMm + options.overhangMm * 2 - edgeRows * edgeSize.widthMm;
     const fillRows = Math.floor((remainingWidth + EPS) / fillSize.widthMm);
     if (fillRows < 1) continue;
-    const placements = [];
-    const edgeStartZ = sign * (pallet.widthMm / 2 - edgeSize.widthMm / 2);
-    for (let row = 0; row < edgeRows; row++) {
-      const zMm = edgeStartZ - sign * row * edgeSize.widthMm;
-      for (const xMm of centeredPositions(edgeCount, edgeSize.lengthMm)) placements.push({ xMm, zMm, ...edgeSize });
+    for (let columns = fillColumns; columns >= 1; columns--) {
+      const placements = [];
+      const edgeStartZ = sign * (pallet.widthMm / 2 - edgeSize.widthMm / 2);
+      for (let row = 0; row < edgeRows; row++) {
+        const zMm = edgeStartZ - sign * row * edgeSize.widthMm;
+        for (const xMm of centeredPositions(edgeCount, edgeSize.lengthMm)) placements.push({ xMm, zMm, ...edgeSize });
+      }
+      const fillStartZ = sign * (pallet.widthMm / 2 - edgeRows * edgeSize.widthMm - fillSize.widthMm / 2);
+      for (let row = 0; row < fillRows; row++) {
+        const zMm = fillStartZ - sign * row * fillSize.widthMm;
+        for (const xMm of centeredPositions(columns, fillSize.lengthMm)) placements.push({ xMm, zMm, ...fillSize });
+      }
+      if (!placementsValid(placements, pallet, options.overhangMm) || !normalizeEdgeConstraint(placements, options)) continue;
+      if (wantMarginMm > 0 && !rowMarginRuleSatisfied(placements, options)) continue;
+      output.push({
+        placements,
+        pattern: [edgeOrientation, fillOrientation],
+        axis: 'edge-exposure',
+        posture,
+        layout: 'edge-exposure',
+        edgeRows,
+        edgeCount: edgeRows * edgeCount,
+        fillCount: fillRows * columns,
+        layoutLabel: faceLayoutLabel('edge-exposure', edgeRows),
+      });
+      // 未启用行余量时保持原行为：只取填满的排样；
+      // 启用时一旦当前列数已满足行余量即停止继续缩短。
+      if (!(wantMarginMm > 0)) break;
+      const report = palletRowMarginReport(placements);
+      if (report.rows.length <= 1 || report.satisfiedFor(wantMarginMm, pallet.lengthMm)) break;
     }
-    const fillStartZ = sign * (pallet.widthMm / 2 - edgeRows * edgeSize.widthMm - fillSize.widthMm / 2);
-    for (let row = 0; row < fillRows; row++) {
-      const zMm = fillStartZ - sign * row * fillSize.widthMm;
-      for (const xMm of centeredPositions(fillColumns, fillSize.lengthMm)) placements.push({ xMm, zMm, ...fillSize });
-    }
-    if (!placementsValid(placements, pallet, options.overhangMm) || !normalizeEdgeConstraint(placements, options)) continue;
-    output.push({
-      placements,
-      pattern: [edgeOrientation, fillOrientation],
-      axis: 'edge-exposure',
-      posture,
-      layout: 'edge-exposure',
-      edgeRows,
-      edgeCount: edgeRows * edgeCount,
-      fillCount: fillRows * fillColumns,
-      layoutLabel: faceLayoutLabel('edge-exposure', edgeRows),
-    });
   }
   return output;
 }
@@ -681,37 +688,29 @@ export function palletRowMarginReport(placements) {
 }
 
 function layerOptions(options, layerIndex, posture = 'normal') {
-  // 分层规则二：第二层可配置独立的单边展示模式，覆盖全局展示约束。
-  // 仅作用于正常姿态层；侧倒层不受该规则约束（与展示豁免口径一致）。
-  let effective = options;
-  if (options.layerRules?.enabled && posture === 'normal' && layerIndex === 1) {
-    const mode = options.layerRules.secondLayerMode;
-    if (mode !== 'free') {
-      effective = {
-        ...options,
-        faceConstraint: { ...options.faceConstraint, enabled: true, layout: 'edge-exposure', unitFace: mode },
-      };
-    }
-  }
-  const patterns = patternVariants(effective, layerIndex);
-  const isEdgeTemplate = effective.faceConstraint.enabled && effective.faceConstraint.layout === 'edge-exposure';
+  // 分层规则口径（v3）：“一/二/三”是约束的先后顺序，不是物理层号——
+  // 约束一：顶层侧倒出边限制（在 extendState 中校验）；
+  // 约束二：整板展示面模板，由 faceConstraint（指定托盘长边展示面）承载；
+  // 约束三：每一层都要求长边第一排允许贴边、其余排至少一排沿托盘长向剩余 ≥ 行余量下限。
+  const patterns = patternVariants(options, layerIndex);
+  const isEdgeTemplate = options.faceConstraint.enabled && options.faceConstraint.layout === 'edge-exposure';
   // 单边展示约束只约束正常姿态层。侧倒（H 面向下）时长侧面必然朝上，与
   // “L 面朝托盘长边”在几何上互斥；若把约束套到侧倒层，候选会被过滤为空、
   // 极限侧倒静默失效。因此侧倒层豁免该约束，展示面由下部正常姿态层保证。
   const exemptFromFaceConstraint = posture === 'side-lay';
   const templateApplies = isEdgeTemplate && !exemptFromFaceConstraint;
   const candidates = templateApplies
-    ? edgeExposureLayouts(effective, posture)
+    ? edgeExposureLayouts(options, posture)
     : [
-        ...sequenceCandidates(effective, 'z', posture, !exemptFromFaceConstraint),
-        ...sequenceCandidates(effective, 'x', posture, !exemptFromFaceConstraint),
+        ...sequenceCandidates(options, 'z', posture, !exemptFromFaceConstraint),
+        ...sequenceCandidates(options, 'x', posture, !exemptFromFaceConstraint),
       ];
   const requiredPattern = patterns.join('');
-  let valid = candidates.filter(item => placementsValid(item.placements, effective.usablePallet || effective.pallet, effective.overhangMm));
-  // 分层规则三：第三层起每层至少一排沿托盘长向剩余 ≥ 设定值（硬约束，
-  // 先于策略筛选和件数择优执行，保证“不牺牲合格候选”）。
-  if (effective.layerRules?.enabled && layerIndex >= 2) {
-    valid = valid.filter(item => rowMarginRuleSatisfied(item.placements, effective));
+  let valid = candidates.filter(item => placementsValid(item.placements, options.usablePallet || options.pallet, options.overhangMm));
+  // 分层规则三：作用于每一层（硬约束，先于策略筛选和件数择优执行，
+  // 保证“不牺牲合格候选”）。
+  if (options.layerRules?.enabled) {
+    valid = valid.filter(item => rowMarginRuleSatisfied(item.placements, options));
   }
   const filtered = valid.filter(item => {
     // 单边模板的 A/B 是同一层内部的固定结构；“全部同向”在此表示各层复用该模板，

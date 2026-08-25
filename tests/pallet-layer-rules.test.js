@@ -41,7 +41,6 @@ test('软包默认启用分层规则（内建算法，无需开关）；纸箱�
   assert.equal(softpackDefaults.layerRules.enabled, true);
   assert.equal(softpackDefaults.layerRules.sideLayMaxOverhangMm, 10);
   assert.equal(softpackDefaults.layerRules.minRowMarginMm, 50);
-  assert.equal(softpackDefaults.layerRules.secondLayerMode, 'free');
 
   const caseDefaults = normalizePalletOptions({
     packageType: 'case',
@@ -55,7 +54,7 @@ test('软包默认启用分层规则（内建算法，无需开关）；纸箱�
   const legacy = optimizePalletLayout({ ...layerRulesBaseInput, layerRules: { enabled: false } });
   const disabled = optimizePalletLayout({
     ...layerRulesBaseInput,
-    layerRules: { enabled: false, sideLayMaxOverhangMm: 10, secondLayerMode: 'free', minRowMarginMm: 50 },
+    layerRules: { enabled: false, sideLayMaxOverhangMm: 10, minRowMarginMm: 50 },
   });
   assert.equal(legacy.totalCount, disabled.totalCount);
   assert.equal(legacy.layerCount, disabled.layerCount);
@@ -67,7 +66,7 @@ test('规则一：顶层侧倒相对下层轮廓出边不得超过设定值', ()
   const limited = optimizePalletLayout({
     ...layerRulesBaseInput,
     softpackOptions: { cornerProtectorsEnabled: false, topSideLayMode: 'auto' },
-    layerRules: { enabled: true, sideLayMaxOverhangMm: 10, secondLayerMode: 'free', minRowMarginMm: 0 },
+    layerRules: { enabled: true, sideLayMaxOverhangMm: 10, minRowMarginMm: 0 },
   });
   assert.equal(limited.ok, true);
   // 规则只会收缩可行域，件数不会变多。
@@ -80,25 +79,36 @@ test('规则一：顶层侧倒相对下层轮廓出边不得超过设定值', ()
   }
 });
 
-test('规则二：第二层固定为长侧面单边展示模板（全局展示约束关闭时仍生效）', () => {
+test('约束二：单边展示模板与行余量兼容（枚举缩短填充列数的变体）', () => {
   clearPalletLayoutCache();
   const input = {
     ...layerRulesBaseInput,
-    layerRules: { enabled: true, sideLayMaxOverhangMm: 10, secondLayerMode: 'long-side', minRowMarginMm: 0 },
+    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
   };
+  const templates = enumerateSingleEdgeLayouts(input);
+  assert.ok(templates.length >= 1, '长侧面单边展示应有可行模板');
+  const usableLength = normalizePalletOptions(input).usablePallet.lengthMm;
+  for (const tpl of templates) {
+    const report = palletRowMarginReport(tpl.placements);
+    if (report.rows.length > 1) {
+      const bestRest = Math.max(...report.rows.slice(1).map(row => usableLength - row.spanLengthMm));
+      assert.ok(bestRest >= 50 - 1e-6, `单边模板其余排最大余量 ${bestRest} 应 ≥ 50`);
+    }
+  }
+  // 存在缩短填充列的变体（填满版所有行都贴边、无法满足行余量）。
   const plan = optimizePalletLayout(input);
   assert.equal(plan.ok, true);
-  assert.ok(plan.layers.length >= 2, '应有第二层');
-  const second = plan.layers[1];
-  const secondSig = second.map(item => [item.xMm, item.zMm, item.orientation].join(':')).sort().join('|');
-  const templates = enumerateSingleEdgeLayouts({
-    ...input,
-    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
-  }).map(tpl => tpl.placements.map(item => [item.xMm, item.zMm, item.orientation].join(':')).sort().join('|'));
-  assert.ok(templates.includes(secondSig), '第二层排样应命中长侧面单边模板集合');
+  for (const layer of plan.layers) {
+    if (layer.some(item => item.posture === 'side-lay')) continue;
+    const report = palletRowMarginReport(layer);
+    if (report.rows.length > 1) {
+      const bestRest = Math.max(...report.rows.slice(1).map(row => usableLength - row.spanLengthMm));
+      assert.ok(bestRest >= 50 - 1e-6, '正常姿态层应满足行余量');
+    }
+  }
 });
 
-test('规则三：软包缺省即生效——第三层起每层其余排至少一排沿托盘长向剩余≥50mm', () => {
+test('规则三：软包缺省即生效——每一层其余排至少一排沿托盘长向剩余≥50mm', () => {
   clearPalletLayoutCache();
   const input = layerRulesBaseInput;
   const baseline = optimizePalletLayout({ ...layerRulesBaseInput, layerRules: { enabled: false } });
@@ -106,7 +116,7 @@ test('规则三：软包缺省即生效——第三层起每层其余排至少�
   assert.equal(plan.ok, true);
   assert.ok(plan.totalCount <= baseline.totalCount, '规则收紧后件数不应增加');
   const usableLength = plan.options.usablePallet?.lengthMm ?? plan.options.pallet.lengthMm;
-  for (let index = 2; index < plan.layers.length; index++) {
+  for (let index = 0; index < plan.layers.length; index++) {
     const report = palletRowMarginReport(plan.layers[index]);
     if (report.rows.length > 1) {
       const bestRest = Math.max(...report.rows.slice(1).map(row => usableLength - row.spanLengthMm));
