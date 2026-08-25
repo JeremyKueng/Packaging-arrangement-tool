@@ -3791,7 +3791,7 @@
           const tinted = (isArr ? node.material : [node.material]).map(m => {
             if (!m.color) return m;
             const clone = m.clone();
-            clone.color = new THREE.Color(m.color).lerp(GRANULE_TINT_COLOR, .62);
+            clone.color = new THREE.Color(m.color).lerp(GRANULE_TINT_COLOR, .85);
             return clone;
           });
           node.material = isArr ? tinted : tinted[0];
