@@ -755,6 +755,16 @@ function layerOptions(options, layerIndex, posture = 'normal') {
         const bMatch = b.pattern.slice(0, patterns.length).join('') === requiredPattern ? 1 : 0;
         if (aMatch !== bMatch) return bMatch - aMatch;
       }
+      if (templateApplies) {
+        // 单边模板只保留一个候选时，同件数下优先覆盖面积更大的变体：
+        // 既提高层间支撑，也缩小与顶层侧倒块的轮廓差——否则较窄模板会把
+        // 约束一的必要出边从几毫米推高到几十毫米，直接损失顶层数量。
+        const aB = placementBounds(a.placements);
+        const bB = placementBounds(b.placements);
+        const aArea = (aB.maxX - aB.minX) * (aB.maxZ - aB.minZ);
+        const bArea = (bB.maxX - bB.minX) * (bB.maxZ - bB.minZ);
+        if (Math.abs(aArea - bArea) > 1) return bArea - aArea;
+      }
       return evaluateLayer(a.placements, options).centerOffsetMm - evaluateLayer(b.placements, options).centerOffsetMm;
     })
     // 单边模板层只保留唯一最优结构：上下层覆盖面积必须一致，

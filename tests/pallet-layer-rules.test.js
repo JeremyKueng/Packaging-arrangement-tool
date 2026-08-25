@@ -165,6 +165,10 @@ test('案例回归：325×180×438 单边展示＋1300 高度——模板逐层�
   assert.equal(plan.ok, true);
   assert.equal(plan.topSideLayApplied, true);
   assert.ok(plan.layerCount >= 3, '1300 高度应能叠到第三层（顶层侧倒）');
+  // 业务基准：默认出边上限 10mm 内即应复现现场 36 件 [15/15/6]。
+  // 模板变体若按重心偏移择优会选中较窄轮廓，把必要出边推高到 23mm——回归此行为时在此失败。
+  assert.equal(plan.totalCount, 36, '默认 10mm 出边上限应达到现场 36 件');
+  assert.deepEqual(plan.itemsPerLayer, [15, 15, 6]);
   // 正常姿态层必须复用同一单边模板（覆盖面积一致）。
   const posSig = layer => layer.map(item => [item.xMm, item.zMm, item.orientation].join(':')).sort().join('|');
   const normalLayers = plan.layers.filter(layer => layer.every(item => item.posture === 'normal'));
