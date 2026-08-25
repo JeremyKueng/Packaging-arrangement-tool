@@ -487,7 +487,7 @@
         <div class="summary-meta"><span><span id="summaryCountLabel">数量</span> <b id="summaryCount">18</b></span><span id="summaryFoldMeta" hidden><span id="summaryFoldLabel">折合单粒</span> <b id="summaryFoldCount">—</b></span><span>组合尺寸 <b id="summarySize">—</b></span></div>
         </div>
         <div class="viewbar" aria-label="视角切换">
-          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="outerHighlightBtn" type="button" hidden aria-pressed="false" title="突出显示装入单元的外包装壳，开启后点击箱内单元可切换突出位置；与「突出小粒」二选一">突出外包装</button><button id="outerHighlightGranuleBtn" type="button" hidden aria-pressed="false" title="突出显示突出单元内部展开的每一粒小粒，开启后点击箱内单元可切换突出位置；与「突出外包装」二选一">突出小粒</button><button id="viewSettingsBtn" type="button">视图设置</button>
+          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="outerHighlightBtn" type="button" hidden aria-pressed="false" title="突出显示装入单元的外包装壳，开启后点击箱内单元可切换突出位置；与「突出小粒」二选一">突出外包装</button><button id="outerHighlightGranuleBtn" type="button" hidden aria-pressed="false" title="把突出单元内部展开的每一粒小粒染成蓝色，开启后点击箱内单元可切换突出位置；与「突出外包装」二选一">突出小粒</button><button id="viewSettingsBtn" type="button">视图设置</button>
         </div>
       </div>
       <div class="hint">左键拖动物体：稳定环绕 · 滚轮：缩放 · 右键：平移</div>
@@ -2991,7 +2991,7 @@
       for (let y=0;y<metrics.l;y++) for (let z=0;z<metrics.c;z++) for (let x=0;x<metrics.r;x++) {
         const item = template.clone(true);
         item.position.set(x*step[0]-center[0],y*step[1]-center[1],z*step[2]-center[2]);
-        // 标记小粒根节点：外包装视图「突出小粒」模式据此在单元内逐粒叠加高亮壳。
+        // 标记小粒根节点：外包装视图「突出小粒」模式据此把单元内小粒染成蓝色。
         item.userData.granuleRoot = true;
         group.add(item);
       }
@@ -3779,25 +3779,23 @@
       return found;
     }
 
-    // 「突出小粒」：在突出单元内部逐粒叠加高亮壳。壳体作为该单元的子节点挂载，
-    // 随入场动画和单元姿态（中包整体旋转）同步移动；包围盒取各小粒在单元局部系下的 AABB。
+    // 「突出小粒」：直接把突出单元内每粒小粒染成蓝色，而不是逐粒罩壳。
+    // 所有单元共享材质，因此只克隆突出单元内小粒用到的材质再调色，其他单元不受影响；
+    // 染色发生在单元自身的克隆体上，随入场动画和单元姿态（中包整体旋转）自然同步。
+    const GRANULE_TINT_COLOR = new THREE.Color(0x175cd3);
     function applyGranuleUnitHighlight(item, granules) {
-      item.updateMatrixWorld(true);
-      const itemInverse = new THREE.Matrix4().copy(item.matrixWorld).invert();
-      const padRatio = .05;
       for (const granule of granules) {
-        const box = new THREE.Box3().setFromObject(granule);
-        if (box.isEmpty()) continue;
-        box.applyMatrix4(itemInverse);
-        const size = box.getSize(new THREE.Vector3());
-        const pad = Math.max(.02, Math.max(size.x,size.y,size.z)*padRatio);
-        const shellGeometry = new THREE.BoxGeometry(size.x+pad, size.y+pad, size.z+pad);
-        const shell = new THREE.Mesh(shellGeometry, new THREE.MeshBasicMaterial({ color:0xd97706, transparent:true, opacity:.30, depthWrite:false }));
-        shell.renderOrder = 15;
-        const outline = edgeLines(shellGeometry, 0xb45309, .95);
-        const group = new THREE.Group(); group.add(shell); group.add(outline);
-        group.position.copy(box.getCenter(new THREE.Vector3()));
-        item.add(group);
+        granule.traverse(node => {
+          if (!node.isMesh || !node.material) return;
+          const isArr = Array.isArray(node.material);
+          const tinted = (isArr ? node.material : [node.material]).map(m => {
+            if (!m.color) return m;
+            const clone = m.clone();
+            clone.color = new THREE.Color(m.color).lerp(GRANULE_TINT_COLOR, .62);
+            return clone;
+          });
+          node.material = isArr ? tinted : tinted[0];
+        });
       }
     }
 
