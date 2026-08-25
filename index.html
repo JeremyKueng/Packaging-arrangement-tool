@@ -183,6 +183,10 @@
     .pallet-metric-label { overflow: hidden; color: #637083; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
     .pallet-metric-value { margin-top: 2px; color: #175cd3; font-size: 14px; font-weight: 750; line-height: 1.2; font-variant-numeric: tabular-nums; }
     .pallet-metric-board[data-invalid="true"] .pallet-metric-value { color: #8a98aa; }
+    .pallet-result-toggle { cursor: pointer; user-select: none; }
+    .pallet-result-toggle::after { content: ' ▾ 收起'; color: #637083; font-size: 11px; font-weight: 400; }
+    .definition-card.collapsed .pallet-result-toggle::after { content: ' ▸ 展开'; }
+    .definition-card.collapsed p { display: none; }
     .webgl-fallback { position: absolute; inset: 20px; z-index: 20; display: grid; place-content: center; gap: 10px; padding: 28px; border: 1px solid #e1a93c; border-radius: 16px; color: #5a4215; background: rgba(255, 249, 232, .96); box-shadow: 0 12px 30px rgba(92, 70, 22, .12); text-align: center; }
     .webgl-fallback[hidden] { display: none; }
     .webgl-fallback h2 { margin: 0; color: #805b0a; font-size: 18px; }
@@ -433,12 +437,12 @@
             <div class="field"><label for="palletUnitWidthMm">单件宽 mm</label><input id="palletUnitWidthMm" type="number" min="1" max="5000" value="400"></div>
             <div class="field"><label for="palletUnitHeightMm">单件高 mm</label><input id="palletUnitHeightMm" type="number" min="1" max="5000" value="300"></div>
           </div>
-          <div class="direction-note">叠板阶段的长、宽、高是独立箱规；上游小粒尺寸和内部排列不参与托盘计算。</div>
+          <div class="direction-note" title="叠板阶段的长、宽、高是独立箱规；上游小粒尺寸和内部排列不参与托盘计算。">叠板箱规独立于上游工段，仅在此维护（悬停查看说明）。</div>
           <div class="source-summary pallet-fixed-spec">固定托板：1200 × 1000 × 160 mm；总高度＝可摆放高度＋160 mm 托板。</div>
           <div class="field"><label for="palletLoadHeightMm">可摆放高度 mm</label><input id="palletLoadHeightMm" type="number" min="1040" max="2340" step="50" value="1640"></div>
           <div id="palletSoftpackOptions" hidden>
             <div class="field"><label for="palletCornerProtectors">四个护角</label><select id="palletCornerProtectors"><option value="off">不使用</option><option value="on">使用（扣减可用长宽）</option></select></div>
-            <div class="grid-2">
+            <div class="grid-2" id="palletCornerLossFields" hidden>
               <div class="field"><label for="palletCornerLossLengthMm">长向单侧损耗 mm</label><input id="palletCornerLossLengthMm" type="number" min="0" max="200" step="5" value="0"></div>
               <div class="field"><label for="palletCornerLossWidthMm">宽向单侧损耗 mm</label><input id="palletCornerLossWidthMm" type="number" min="0" max="200" step="5" value="0"></div>
             </div>
@@ -447,14 +451,14 @@
               <div class="field"><label for="palletSideLayMaxOverhangMm">侧倒出边上限 mm</label><input id="palletSideLayMaxOverhangMm" type="number" min="0" max="100" value="10"></div>
               <div class="field"><label for="palletMinRowMarginMm">行余量下限 mm</label><input id="palletMinRowMarginMm" type="number" min="0" max="500" step="5" value="50"></div>
             </div>
-            <div class="direction-note">软包分层算法按约束顺序生效：①顶层侧倒件相对下层轮廓出边不超过“侧倒出边上限”；②整板码放模板由下方“指定托盘长边展示面”决定（无限制/单边展示）；③每一层长边第一排允许贴边，其余排中至少一排沿托盘长向剩余不小于“行余量下限”。结果同时给出最优与次优两套排列。</div>
+            <div class="direction-note" title="软包分层算法按约束顺序生效：①顶层侧倒件相对下层轮廓出边不超过“侧倒出边上限”；②整板码放模板由下方“指定托盘长边展示面”决定（无限制/单边展示）；③每一层长边第一排允许贴边，其余排中至少一排沿托盘长向剩余不小于“行余量下限”。结果同时给出最优与次优两套排列。">软包分层按约束①②③顺序生效，结果含最优与次优（悬停查看细则）。</div>
           </div>
           <div class="grid-2">
             <div class="field"><label for="palletLayerStrategy">层间码放方式</label><select id="palletLayerStrategy"><option value="cyclic-interlock">循环错层（推荐）</option><option value="optimize">自动稳定错层</option><option value="alternate">A/B 逐层交替</option><option value="same">全部同向</option></select></div>
             <div class="field" id="palletBasePatternField"><label for="palletBasePattern">基础排样</label><select id="palletBasePattern"><option value="AAB">AAB · 两正一反循环</option><option value="AB">AB · 正反交替</option><option value="A">全 A</option><option value="B">全 B</option></select></div>
           </div>
           <div class="field"><label for="palletFaceConstraintEnabled">指定托盘长边展示面</label><select id="palletFaceConstraintEnabled"><option value="off">不限制</option><option value="long-side">长侧面·单边展示（自动组合）</option><option value="short-side">短侧面·单边展示（自动组合）</option></select></div>
-          <div class="direction-note">单边展示仅约束托盘其中一条长边：展示边至少保留一排目标朝向，算法自动枚举正向排数；其余区域旋转 90° 填充，不会沿托盘中线拆分。件数和正向排数均随单件尺寸、护角损耗和托盘边界动态计算。</div>
+          <div class="direction-note" title="单边展示仅约束托盘其中一条长边：展示边至少保留一排目标朝向，算法自动枚举正向排数；其余区域旋转 90° 填充，不会沿托盘中线拆分。件数和正向排数均随单件尺寸、护角损耗和托盘边界动态计算。">单边展示＝展示边保留目标朝向排，其余旋转填充（悬停查看细则）。</div>
           <div class="field"><label for="palletShowFaceLabels">L/W 面标识</label><select id="palletShowFaceLabels"><option value="on">显示</option><option value="off">隐藏</option></select></div>
           <div class="definition-card" id="palletDefinitionCard" aria-live="polite"></div>
           <div class="pallet-candidates" id="palletCandidates"></div>
@@ -498,7 +502,7 @@
       </section>
       <div class="axis-key"><span class="handle" id="handleLegend">手挽耳</span><span class="bottom" id="bottomLegend">袋底端</span><span class="x" id="xLegend">排数 X</span><span class="y" id="yLegend">层数 Y</span><span class="z" id="zLegend">每排包数 Z</span></div>
       <section class="pallet-metric-board" id="palletMetricBoard" hidden aria-live="polite" aria-label="叠板指标看板">
-        <div class="pallet-metric-title">叠板结果看板</div>
+        <div class="pallet-metric-title" id="palletMetricTitle">叠板结果看板</div>
         <div class="pallet-metric-grid">
           <div class="pallet-metric"><div class="pallet-metric-label">每层件数</div><div class="pallet-metric-value" id="palletMetricItemsPerLayer">—</div></div>
           <div class="pallet-metric"><div class="pallet-metric-label">叠放层数</div><div class="pallet-metric-value" id="palletMetricLayers">—</div></div>
@@ -880,8 +884,11 @@
       ui.palletStatus.dataset.tone = tone;
     }
 
-    function updatePalletMetricBoard(plan) {
+    function updatePalletMetricBoard(plan, mode = 'best') {
       const valid = Boolean(plan?.ok);
+      // 看板标题与数值跟随当前 3D 口径：最优解 Top 1 / 次优解 Top 2 联动切换。
+      const titleEl = document.getElementById('palletMetricTitle');
+      if (titleEl) titleEl.textContent = mode === 'runner' ? '叠板结果看板 · 次优解 Top 2（备选）' : '叠板结果看板 · 最优解 Top 1';
       const percent = value => Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : '—';
       const millimeters = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)} mm` : '—';
       const layers = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)} 层` : '—';
@@ -902,7 +909,10 @@
       ui.palletDefinitionCard.replaceChildren();
       ui.palletCandidates.replaceChildren();
       const heading = document.createElement('strong');
+      heading.className = 'pallet-result-toggle';
       heading.textContent = '叠板优化结果';
+      heading.title = '点击折叠 / 展开详细结果';
+      heading.addEventListener('click', () => ui.palletDefinitionCard.classList.toggle('collapsed'));
       ui.palletDefinitionCard.appendChild(heading);
       if (!plan?.ok) {
         const p = document.createElement('p'); p.textContent = formatPalletPlan(plan); ui.palletDefinitionCard.appendChild(p);
@@ -976,6 +986,9 @@
       const strategy = ui.palletLayerStrategy.value;
       const patternField = document.getElementById('palletBasePatternField');
       if (patternField) patternField.hidden = !(strategy === 'cyclic-interlock' || strategy === 'optimize');
+      // 护角损耗只在"四个护角＝使用"时有意义，不使用时折叠输入。
+      const lossFields = document.getElementById('palletCornerLossFields');
+      if (lossFields) lossFields.hidden = ui.palletCornerProtectors.value !== 'on';
       ui.palletSourceSummary.textContent = isSoftpack
         ? '叠板形态：软包。单件尺寸与上游工段解耦；可人工设置护角损耗与顶层 H 面侧倒。'
         : '叠板形态：纸箱。单件尺寸与上游工段解耦，按独立箱规优化。';
@@ -3485,11 +3498,12 @@
     // 叠板场景：托盘与 placement list 独立建模，不复用大包/装箱 rows/cols/layers 容器逻辑。
     function rebuildPallet() {
       if (!palletPlan) palletPlan = optimizePalletLayout(palletOptionsFromUi());
-      // 次优查看模式只切换 3D 几何；指标板与保存口径仍以最优解（palletPlan）为准。
+      // 次优查看模式只切换 3D 几何；看板数值与标题跟随当前查看的方案联动，
+      // 保存预设与 PDF 口径仍以最优解（palletPlan）为准。
       const showRunner = palletViewMode === 'runner'
         && palletPlan.ok && palletPlan.hasRunnerUp && palletPlan.runnerUp;
       const plan = showRunner ? palletPlan.runnerUp : palletPlan;
-      updatePalletMetricBoard(palletPlan);
+      updatePalletMetricBoard(plan, showRunner ? 'runner' : 'best');
       setPalletStatus(showRunner
         ? `当前 3D 显示：次优解 Top 2（${plan.totalCount} 件，每层 ${plan.itemsPerLayer.join('/')}）。点击“最优解 Top 1”卡片切回最优方案。`
         : '', showRunner ? 'warn' : '');
