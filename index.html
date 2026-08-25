@@ -487,7 +487,7 @@
         <div class="summary-meta"><span><span id="summaryCountLabel">数量</span> <b id="summaryCount">18</b></span><span id="summaryFoldMeta" hidden><span id="summaryFoldLabel">折合单粒</span> <b id="summaryFoldCount">—</b></span><span>组合尺寸 <b id="summarySize">—</b></span></div>
         </div>
         <div class="viewbar" aria-label="视角切换">
-          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="outerHighlightBtn" type="button" hidden aria-pressed="false" title="突出显示一个装入单元，开启后点击箱内单元可切换突出位置">突出单元</button><button id="viewSettingsBtn" type="button">视图设置</button>
+          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="outerHighlightBtn" type="button" hidden aria-pressed="false" title="突出显示装入单元的外包装壳，开启后点击箱内单元可切换突出位置；与「突出小粒」二选一">突出外包装</button><button id="outerHighlightGranuleBtn" type="button" hidden aria-pressed="false" title="突出显示突出单元内部展开的每一粒小粒，开启后点击箱内单元可切换突出位置；与「突出外包装」二选一">突出小粒</button><button id="viewSettingsBtn" type="button">视图设置</button>
         </div>
       </div>
       <div class="hint">左键拖动物体：稳定环绕 · 滚轮：缩放 · 右键：平移</div>
@@ -1103,6 +1103,7 @@
       outerPresetStatus: $('outerPresetStatus'), outerProductToggleInput: $('outerProductToggleInput'), outerLabelToggleInput: $('outerLabelToggleInput'),
       outerProductToggleRow: $('outerProductToggleRow'), outerLabelToggleRow: $('outerLabelToggleRow'), outerProductToggleText: $('outerProductToggleText'),
       outerHighlightBtn: $('outerHighlightBtn'),
+      outerHighlightGranuleBtn: $('outerHighlightGranuleBtn'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
@@ -1210,6 +1211,8 @@
     let showOuterLabels = false;
     // 突出单元：仅视图辅助状态，不写入方案快照，也不改变外包装业务尺寸。
     let showOuterHighlight = false;
+    // 高亮对象二选一：'shell'=高亮单元外包装；'granule'=高亮单元内展开的小粒（仅中包单元有意义）。
+    let outerHighlightMode = 'shell';
     let outerHighlightTarget = null; // {x,z,y} 单元索引；null = 使用默认可见角单元。
     let caseMouthOpen = false;
     let caseXrayEnabled = true;
@@ -1973,7 +1976,7 @@
         $('handleLegend').hidden = true; $('bottomLegend').hidden = true;
         document.querySelectorAll('[data-direction-view],[data-outer-direction-view]').forEach(button => { button.hidden = true; });
         ui.outerProductToggleRow.hidden = true; ui.outerLabelToggleRow.hidden = true;
-        ui.outerHighlightBtn.hidden = true;
+        ui.outerHighlightBtn.hidden = true; ui.outerHighlightGranuleBtn.hidden = true;
         ui.caseMouthBtn.hidden = true; ui.caseXrayBtn.hidden = true; ui.caseNameBtn.hidden = true;
         return;
       }
@@ -1991,9 +1994,13 @@
       ui.outerLabelToggleRow.hidden = !outer;
       ui.outerLabelToggleInput.checked = showOuterLabels;
       // 突出单元按钮只在外包装排列视图显示；单粒视图与中包/叠板无此概念。
+      // 「突出小粒」仅在单元为中包（存在内部小粒）时显示；单元为单粒时两者等价，只留外包装模式。
       const showHighlightToggle = outer && mode === 'array';
+      const granuleCapable = showHighlightToggle && ui.outerUnit.value !== 'product';
       ui.outerHighlightBtn.hidden = !showHighlightToggle;
-      ui.outerHighlightBtn.setAttribute('aria-pressed',String(showOuterHighlight));
+      ui.outerHighlightBtn.setAttribute('aria-pressed',String(showOuterHighlight && outerHighlightMode === 'shell'));
+      ui.outerHighlightGranuleBtn.hidden = !granuleCapable;
+      ui.outerHighlightGranuleBtn.setAttribute('aria-pressed',String(showOuterHighlight && granuleCapable && outerHighlightMode === 'granule'));
       const showCaseControls = packagingLevel === 'case' && ui.envelope.checked && mode === 'array';
       ui.caseMouthBtn.hidden = !showCaseControls;
       ui.caseMouthBtn.textContent = caseMouthOpen ? '关闭箱口' : '打开箱口';
@@ -2984,6 +2991,8 @@
       for (let y=0;y<metrics.l;y++) for (let z=0;z<metrics.c;z++) for (let x=0;x<metrics.r;x++) {
         const item = template.clone(true);
         item.position.set(x*step[0]-center[0],y*step[1]-center[1],z*step[2]-center[2]);
+        // 标记小粒根节点：外包装视图「突出小粒」模式据此在单元内逐粒叠加高亮壳。
+        item.userData.granuleRoot = true;
         group.add(item);
       }
       group.scale.y = metrics.heightScale;
@@ -3747,6 +3756,12 @@
       // 天然包含十字挡板让位等偏移，避免高亮框与单元错位。
       const item = targets[(valid.y*c + valid.z)*r + valid.x];
       if (!item) return;
+      // 小粒模式：收集单元内标记为 granuleRoot 的小粒根节点；无小粒（单粒直装或未展开）时回退外包装壳。
+      const granules = outerHighlightMode === 'granule' ? collectGranuleRoots(item) : [];
+      if (outerHighlightMode === 'granule' && granules.length) {
+        applyGranuleUnitHighlight(item, granules);
+        return;
+      }
       const pad = Math.max(0.02, Math.max(...d)*0.03);
       const shellGeometry = new THREE.BoxGeometry(d[0]+pad, d[1]+pad, d[2]+pad);
       const shell = new THREE.Mesh(shellGeometry, new THREE.MeshBasicMaterial({ color:0x175cd3, transparent:true, opacity:.26, depthWrite:false }));
@@ -3755,6 +3770,35 @@
       const group = new THREE.Group(); group.add(shell); group.add(outline);
       group.position.copy(item.userData.target);
       productGroup.add(group);
+    }
+
+    // 深度优先收集节点子树内所有标记 granuleRoot 的小粒根节点。
+    function collectGranuleRoots(root) {
+      const found = [];
+      root.traverse(node => { if (node.userData?.granuleRoot) found.push(node); });
+      return found;
+    }
+
+    // 「突出小粒」：在突出单元内部逐粒叠加高亮壳。壳体作为该单元的子节点挂载，
+    // 随入场动画和单元姿态（中包整体旋转）同步移动；包围盒取各小粒在单元局部系下的 AABB。
+    function applyGranuleUnitHighlight(item, granules) {
+      item.updateMatrixWorld(true);
+      const itemInverse = new THREE.Matrix4().copy(item.matrixWorld).invert();
+      const padRatio = .05;
+      for (const granule of granules) {
+        const box = new THREE.Box3().setFromObject(granule);
+        if (box.isEmpty()) continue;
+        box.applyMatrix4(itemInverse);
+        const size = box.getSize(new THREE.Vector3());
+        const pad = Math.max(.02, Math.max(size.x,size.y,size.z)*padRatio);
+        const shellGeometry = new THREE.BoxGeometry(size.x+pad, size.y+pad, size.z+pad);
+        const shell = new THREE.Mesh(shellGeometry, new THREE.MeshBasicMaterial({ color:0xd97706, transparent:true, opacity:.30, depthWrite:false }));
+        shell.renderOrder = 15;
+        const outline = edgeLines(shellGeometry, 0xb45309, .95);
+        const group = new THREE.Group(); group.add(shell); group.add(outline);
+        group.position.copy(box.getCenter(new THREE.Vector3()));
+        item.add(group);
+      }
     }
 
     // 突出开启时，点击（非拖拽）箱内单元即切换突出目标。射线只与产品组求交，
@@ -4210,7 +4254,7 @@
         category:ui.category.value,preset:ui.preset.value,presetName:ui.presetName.value,orientation:ui.orientation.value,softdrawVariant:ui.softdrawVariant.value,hangingSideDirection:ui.hangingSideDirection.value,rollCore:ui.rollCore.value,rollBundleMode:ui.rollBundleMode.value,rollBundleX:ui.rollBundleX.value,rollBundleZ:ui.rollBundleZ.value,rollBundleY:ui.rollBundleY.value,
         rows:ui.rows.value,cols:ui.cols.value,layers:ui.layers.value,gap:ui.gap.value,envelope:ui.envelope.checked,
         handleSide:ui.handleSide.value,autoRotate:ui.autoRotate.checked,mode,presetDirty,showOuterProducts,showOuterLabels,caseMouthOpen,caseXrayEnabled,showCartonName,
-        showOuterHighlight,outerHighlightTarget:outerHighlightTarget?{...outerHighlightTarget}:null,
+        showOuterHighlight,outerHighlightMode,outerHighlightTarget:outerHighlightTarget?{...outerHighlightTarget}:null,
         packagingLevel,outerPreset:ui.outerPreset.value,outerPresetName:ui.outerPresetName.value,outerUnit:ui.outerUnit.value,
         outerRows:ui.outerRows.value,outerCols:ui.outerCols.value,outerLayers:ui.outerLayers.value,outerSpacing:ui.outerSpacing.value,outerMargin:ui.outerMargin.value,
         outerLoadFace:ui.outerLoadFace.value,
@@ -4263,6 +4307,7 @@
       caseXrayEnabled = typeof state.caseXrayEnabled === 'boolean' ? state.caseXrayEnabled : true;
       showCartonName = typeof state.showCartonName === 'boolean' ? state.showCartonName : true;
       showOuterHighlight = Boolean(state.showOuterHighlight);
+      outerHighlightMode = state.outerHighlightMode === 'granule' ? 'granule' : 'shell';
       const t = state.outerHighlightTarget;
       outerHighlightTarget = t && [t.x,t.z,t.y].every(v => Number.isInteger(v) && v >= 0) ? { ...t } : null;
       if (isPallet()) {
@@ -5907,12 +5952,20 @@
       showOuterLabels = ui.outerLabelToggleInput.checked;
       syncBagControls(); rebuild(false);
     });
-    ui.outerHighlightBtn.addEventListener('click', () => {
+    // 突出模式二选一：再次点击当前激活的模式即关闭突出；切换模式时重置回默认角单元。
+    function toggleOuterHighlight(modeName) {
       if (isMidpack() || isPallet() || mode !== 'array') return;
-      showOuterHighlight = !showOuterHighlight;
-      outerHighlightTarget = null; // 重新开启时回到默认可见角单元。
+      if (showOuterHighlight && outerHighlightMode === modeName) {
+        showOuterHighlight = false;
+      } else {
+        showOuterHighlight = true;
+        outerHighlightMode = modeName;
+        outerHighlightTarget = null; // 重新开启时回到默认可见角单元。
+      }
       syncBagControls(); rebuild(false);
-    });
+    }
+    ui.outerHighlightBtn.addEventListener('click', () => toggleOuterHighlight('shell'));
+    ui.outerHighlightGranuleBtn.addEventListener('click', () => toggleOuterHighlight('granule'));
     // 点击切换突出目标：区分拖拽（位移或时长超阈值）与点击，避免环绕旋转误选。
     renderer.domElement.addEventListener('pointerdown', event => {
       unitPickDown = { x:event.clientX, y:event.clientY, at:performance.now() };
