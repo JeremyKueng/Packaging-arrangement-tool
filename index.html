@@ -929,7 +929,7 @@
         `稳定性：${plan.stability.boundaryValid && plan.stability.overlapFree && plan.stability.supportValid && plan.stability.centerValid ? '通过' : '需复核'}。`,
         plan.hasRunnerUp && plan.runnerUp
           ? `次优方案（备选）：${plan.runnerUp.totalCount} 件，每层 ${plan.runnerUp.itemsPerLayer.join('/')}，${plan.runnerUp.layerCount} 层。`
-          : '',
+          : '次优方案：当前约束下不存在同高度、每层数量不同的完整备选排列——较低密度的排法均被行余量、展示面模板或出边上限过滤（纸箱不受分层约束，通常总有次优）。',
       ];
       lines.filter(Boolean).forEach(line => { const p = document.createElement('p'); p.textContent = line; ui.palletDefinitionCard.appendChild(p); });
       const bestCard = document.createElement('div');
