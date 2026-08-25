@@ -5759,13 +5759,13 @@
     palletDimensionInputs.forEach(input => {
       input.addEventListener('input', () => {
         if (!isPallet()) return;
-        // 病态中间值防护：单件长/宽过小多半是逐字输入未完成（如输 400 时的"4"），
-        // 此时暂停自动优化避免触发大算力重建；离开输入框（blur/change）后照常执行。
-        const isFootprintField = input === ui.palletUnitLengthMm || input === ui.palletUnitWidthMm;
-        if (isFootprintField && Number(input.value) > 0 && Number(input.value) < 50) {
+        // 病态中间值防护：单件长/宽/高过小多半是逐字输入未完成（如输 400 的"4"、
+        // 输 300 的"3"），此时暂停自动优化避免触发大算力重建；离开输入框后照常执行。
+        const isUnitSizeField = input === ui.palletUnitLengthMm || input === ui.palletUnitWidthMm || input === ui.palletUnitHeightMm;
+        if (isUnitSizeField && Number(input.value) > 0 && Number(input.value) < 50) {
           clearTimeout(palletOptimizeTimer);
           palletOptimizePending = false;
-          setPalletStatus('单件长/宽数值过小，疑似尚未输完——已暂停自动优化；停止输入或点击其他区域后自动执行。', 'warn');
+          setPalletStatus('单件尺寸数值过小，疑似尚未输完——已暂停自动优化；停止输入或点击其他区域后自动执行。', 'warn');
           return;
         }
         setPalletStatus('叠板参数已修改；停顿输入后自动重新优化。', 'warn');

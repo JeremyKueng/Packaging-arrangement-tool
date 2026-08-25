@@ -12,6 +12,10 @@ export const PALLET_LAYER_STRATEGIES = Object.freeze(['same', 'alternate', 'cycl
 // 继续枚举只会生成海量无效候选并冻结界面。各生成器在构建占位前先做预算检查，
 // 超预算的组合直接跳过——结果要么给出可行方案，要么以 unit-too-small 快速失败。
 export const PALLET_LAYER_ITEM_BUDGET = 1200;
+// 叠放层数预算：正常业务下可摆放高度内极少超过二三十层。层数过多同样只会
+// 来自逐字输入高度时的病态中间值（如输 300 的"3"，会算出四百多层），
+// 逐层枚举与三维重建都会随之爆炸，超预算直接快速失败。
+export const PALLET_LAYER_COUNT_BUDGET = 60;
 // 单边展示是“至少一排展示面 + 其余旋转填充”的约束，不是固定件数或固定排数。
 // 算法会枚举所有可行的展示排数；400×165 仅是其中会出现 1 排/3 排候选的示例。
 export const PALLET_FACE_LAYOUTS = Object.freeze(['auto', 'edge-exposure']);
@@ -1279,6 +1283,21 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
     areaUtilization: 0,
   };
   const maxLayers = Math.max(0, Math.floor(options.loadHeightMm / options.unitSizeMm.heightMm + EPS));
+  // 病态小高度快速失败：叠放层数超预算时不再进入逐层枚举与三维重建
+  // （典型场景是逐字输入单件高时的中间值，如 3mm 会算出四百多层）。
+  if (maxLayers > PALLET_LAYER_COUNT_BUDGET) {
+    return {
+      ok: false,
+      reason: 'unit-too-many-layers',
+      options,
+      placements: [],
+      layers: [],
+      totalCount: 0,
+      layerCount: 0,
+      actualLoadHeightMm: 0,
+      totalHeightMm: options.pallet.heightMm,
+    };
+  }
   // 病态小尺寸快速失败：单层容量超出预算时不再进入任何生成器
   // （典型场景是逐字输入单件长宽时的中间值，如 4mm）。
   const unitFootprint = Math.max(1, options.unitSizeMm.lengthMm * options.unitSizeMm.widthMm);
@@ -1446,6 +1465,7 @@ export function formatPalletPlan(plan) {
   if (!plan?.ok) {
     if (plan?.reason === 'unit-too-high') return '单件高度超过可用堆叠高度';
     if (plan?.reason === 'unit-too-small') return '单件尺寸过小，无法在托盘上形成有效排布（请检查长/宽输入是否完整）';
+    if (plan?.reason === 'unit-too-many-layers') return `单件高度过小，叠放层数超过上限（${PALLET_LAYER_COUNT_BUDGET} 层）——请检查高度输入是否完整`;
     return '没有找到可行叠放方式';
   }
   const surface = Number.isFinite(Number(plan.surfaceUtilization)) ? plan.surfaceUtilization : plan.footprintUtilization;
