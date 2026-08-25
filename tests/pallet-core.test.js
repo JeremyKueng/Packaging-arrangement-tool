@@ -319,8 +319,9 @@ test('单边展示排数由尺寸组合动态得出：同一案例会同时产�
     loadHeightMm: 1040,
     faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
   });
-  assert.deepEqual(candidates.map(item => item.edgeRows), [1, 2, 3]);
-  assert.deepEqual(candidates.map(item => item.placements.length), [17, 13, 16]);
+  // 每档行数含满铺与端面对齐两种列数变体（后者缩短展示列使两带跨度一致）。
+  assert.deepEqual(candidates.map(item => item.edgeRows), [1, 1, 2, 2, 3, 3]);
+  assert.deepEqual(candidates.map(item => item.placements.length), [17, 16, 13, 11, 16, 13]);
   const threeRows = candidates.find(item => item.edgeRows === 3);
   assert.equal(threeRows.edgeCount, 9);
   assert.equal(threeRows.fillCount, 7);
@@ -415,4 +416,24 @@ test('关闭顶层侧倒时，同一长侧面单边展示方案回到纯正常�
   assert.equal(plan.ok, true);
   assert.equal(plan.topSideLayApplied, false);
   assert.equal(plan.totalCount, 45);
+});
+
+test('单边模板降档层对称剥离：次优层 X 向质心回到中线', () => {
+  const plan = optimizePalletLayout({
+    unitSizeMm: { lengthMm: 400, widthMm: 165, heightMm: 300 },
+    loadHeightMm: 1300,
+    packageType: 'softpack',
+    layerStrategy: 'cyclic-interlock',
+    softpackOptions: { topSideLayMode: 'auto' },
+    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
+    overhangMm: 10,
+  });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.hasRunnerUp, true);
+  const placements = plan.runnerUp.placements;
+  const meanX = placements.reduce((sum, item) => sum + item.xMm, 0) / placements.length;
+  assert.ok(
+    Math.abs(meanX) < 0.5,
+    '降档层 X 质心应接近中线（对称剥离失效），实测 ' + meanX.toFixed(1) + 'mm',
+  );
 });

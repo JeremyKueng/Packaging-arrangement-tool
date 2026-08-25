@@ -17,7 +17,7 @@ const EPS = 1e-6;
 // 因此调用方修改 placements / options / debug 不会污染后续调用。容量是有限的 LRU，
 // 避免长期编辑不同箱规时内存无限增长。
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
-export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v4';
+export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v5';
 
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
@@ -454,57 +454,78 @@ function edgeExposureLayouts(options, posture = 'normal') {
   // 分层规则三开启时，填充区需要能留出行余量；此时按“填满 → 逐列缩短”枚举，
   // 直到某列数满足行余量（长边第一排展示排允许贴边，天然豁免）。
   const wantMarginMm = options.layerRules?.enabled ? options.layerRules.minRowMarginMm : 0;
+  // 端面对齐变体：缩短展示或填充的列数，让两条带的 X 向跨度一致，
+  // 消除阶梯轮廓。行余量模式下逐列缩短枚举已覆盖更窄组合，不再重复加入。
+  const flushFillColumns = Math.floor((edgeCount * edgeSize.lengthMm + EPS) / fillSize.lengthMm);
+  const flushEdgeCount = Math.floor((fillColumns * fillSize.lengthMm + EPS) / edgeSize.lengthMm);
   const output = [];
   for (let edgeRows = 1; edgeRows <= maxEdgeRows; edgeRows++) {
     const remainingWidth = pallet.widthMm + options.overhangMm * 2 - edgeRows * edgeSize.widthMm;
     const fillRows = Math.floor((remainingWidth + EPS) / fillSize.widthMm);
     if (fillRows < 1) continue;
-    for (let columns = fillColumns; columns >= 1; columns--) {
-      const placements = [];
-      const edgeStartZ = sign * (pallet.widthMm / 2 - edgeSize.widthMm / 2);
-      for (let row = 0; row < edgeRows; row++) {
-        const zMm = edgeStartZ - sign * row * edgeSize.widthMm;
-        for (const xMm of centeredPositions(edgeCount, edgeSize.lengthMm)) placements.push({ xMm, zMm, ...edgeSize });
+    const edgeCountPlans = [...new Set([edgeCount, flushEdgeCount].filter(value => value >= 1))];
+    const columnPlans = wantMarginMm > 0
+      ? Array.from({ length: fillColumns }, (_, index) => fillColumns - index)
+      : [...new Set([fillColumns, flushFillColumns])].filter(value => value >= 1).sort((a, b) => b - a);
+    for (const edgeCountUse of edgeCountPlans) {
+      for (const columns of columnPlans) {
+        const placements = [];
+        const edgeStartZ = sign * (pallet.widthMm / 2 - edgeSize.widthMm / 2);
+        for (let row = 0; row < edgeRows; row++) {
+          const zMm = edgeStartZ - sign * row * edgeSize.widthMm;
+          for (const xMm of centeredPositions(edgeCountUse, edgeSize.lengthMm)) placements.push({ xMm, zMm, ...edgeSize });
+        }
+        const fillStartZ = sign * (pallet.widthMm / 2 - edgeRows * edgeSize.widthMm - fillSize.widthMm / 2);
+        for (let row = 0; row < fillRows; row++) {
+          const zMm = fillStartZ - sign * row * fillSize.widthMm;
+          for (const xMm of centeredPositions(columns, fillSize.lengthMm)) placements.push({ xMm, zMm, ...fillSize });
+        }
+        if (!placementsValid(placements, pallet, options.overhangMm) || !normalizeEdgeConstraint(placements, options)) continue;
+        // 整体居中：模板块沿托盘宽度方向居中放置，不贴死展示边。
+        // 这样各层轮廓关于托盘中线对称，顶层侧倒无需偏移即可对齐；
+        // 展示排仍位于同一侧、保持目标朝向，展示语义不变。
+        let minZ = Infinity;
+        let maxZ = -Infinity;
+        for (const item of placements) {
+          minZ = Math.min(minZ, item.zMm - item.widthMm / 2);
+          maxZ = Math.max(maxZ, item.zMm + item.widthMm / 2);
+        }
+        const dzCenter = -(minZ + maxZ) / 2;
+        if (Math.abs(dzCenter) > EPS) {
+          for (const item of placements) item.zMm += dzCenter;
+        }
+        if (wantMarginMm > 0 && !rowMarginRuleSatisfied(placements, options)) continue;
+        const flushEnds = Math.abs(edgeCountUse * edgeSize.lengthMm - columns * fillSize.lengthMm) < 0.5;
+        output.push({
+          placements,
+          pattern: [edgeOrientation, fillOrientation],
+          axis: 'edge-exposure',
+          posture,
+          layout: 'edge-exposure',
+          edgeRows,
+          edgeCount: edgeRows * edgeCountUse,
+          fillCount: fillRows * columns,
+          layoutLabel: faceLayoutLabel('edge-exposure', edgeRows) + (flushEnds ? ' · 端面齐平' : ''),
+        });
+        // 行余量模式下保持原行为：当前列数一旦满足行余量即停止继续缩短；
+        // 未启用时继续尝试其余端面组合。
+        if (!(wantMarginMm > 0)) continue;
+        const report = palletRowMarginReport(placements);
+        if (report.rows.length <= 1 || report.satisfiedFor(wantMarginMm, pallet.lengthMm)) break;
       }
-      const fillStartZ = sign * (pallet.widthMm / 2 - edgeRows * edgeSize.widthMm - fillSize.widthMm / 2);
-      for (let row = 0; row < fillRows; row++) {
-        const zMm = fillStartZ - sign * row * fillSize.widthMm;
-        for (const xMm of centeredPositions(columns, fillSize.lengthMm)) placements.push({ xMm, zMm, ...fillSize });
-      }
-      if (!placementsValid(placements, pallet, options.overhangMm) || !normalizeEdgeConstraint(placements, options)) continue;
-      // 整体居中：模板块沿托盘宽度方向居中放置，不贴死展示边。
-      // 这样各层轮廓关于托盘中线对称，顶层侧倒无需偏移即可对齐；
-      // 展示排仍位于同一侧、保持目标朝向，展示语义不变。
-      let minZ = Infinity;
-      let maxZ = -Infinity;
-      for (const item of placements) {
-        minZ = Math.min(minZ, item.zMm - item.widthMm / 2);
-        maxZ = Math.max(maxZ, item.zMm + item.widthMm / 2);
-      }
-      const dzCenter = -(minZ + maxZ) / 2;
-      if (Math.abs(dzCenter) > EPS) {
-        for (const item of placements) item.zMm += dzCenter;
-      }
-      if (wantMarginMm > 0 && !rowMarginRuleSatisfied(placements, options)) continue;
-      output.push({
-        placements,
-        pattern: [edgeOrientation, fillOrientation],
-        axis: 'edge-exposure',
-        posture,
-        layout: 'edge-exposure',
-        edgeRows,
-        edgeCount: edgeRows * edgeCount,
-        fillCount: fillRows * columns,
-        layoutLabel: faceLayoutLabel('edge-exposure', edgeRows),
-      });
-      // 未启用行余量时保持原行为：只取填满的排样；
-      // 启用时一旦当前列数已满足行余量即停止继续缩短。
-      if (!(wantMarginMm > 0)) break;
-      const report = palletRowMarginReport(placements);
-      if (report.rows.length <= 1 || report.satisfiedFor(wantMarginMm, pallet.lengthMm)) break;
     }
   }
-  return output;
+  // 端面对齐变体可能与满铺/缩短列变体重合，按占位签名去重。
+  const seenLayouts = new Set();
+  return output.filter(item => {
+    const key = item.placements
+      .map(p => `${p.orientation}:${p.posture}:${p.xMm.toFixed(2)}:${p.zMm.toFixed(2)}`)
+      .sort()
+      .join('|');
+    if (seenLayouts.has(key)) return false;
+    seenLayouts.add(key);
+    return true;
+  });
 }
 
 // 供界面候选说明与回归测试使用：返回“单边展示”约束下所有可行单层组合。
@@ -695,6 +716,134 @@ export function enumerateG4Layouts(rawOptions = {}, posture = 'normal') {
   return cloneSerializable(g4Layouts(options, posture));
 }
 
+// ===== 单边模板派生降档的对称剥离 =====
+//
+// 旧实现按“z 降序 → x 降序”逐件剥离、只补 Z 向居中，缺口集中在同一角，
+// 次优层 X 向质心实测可偏出约 30mm。这里为每个降档位生成多组剥离方案：
+// ① 镜像成对剥离——优先保留展示排，从最内层的镜像对整对拆起，奇数缺口
+//    只取中线上的单件（保持左右严格对称）；② 三种顺序切片兜底。
+// 全部候选统一做 X/Z 双向居中，通过边界、展示面、行余量校验后，
+// 按“X 质心偏移最小、其次少动展示排”选出该档最平衡的排法。
+function recentreBothAxes(placements) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const item of placements) {
+    minX = Math.min(minX, item.xMm - item.lengthMm / 2);
+    maxX = Math.max(maxX, item.xMm + item.lengthMm / 2);
+    minZ = Math.min(minZ, item.zMm - item.widthMm / 2);
+    maxZ = Math.max(maxZ, item.zMm + item.widthMm / 2);
+  }
+  const dx = -(minX + maxX) / 2;
+  const dz = -(minZ + maxZ) / 2;
+  if (Math.abs(dx) > EPS || Math.abs(dz) > EPS) {
+    return placements.map(item => ({ ...item, xMm: item.xMm + dx, zMm: item.zMm + dz }));
+  }
+  return placements;
+}
+
+function deriveTierPlacements(bestChoice, remove, options) {
+  const source = bestChoice.placements;
+  const edgeSign = options.faceConstraint.palletEdge === 'z+' ? 1 : -1;
+  // 展示排判定与 normalizeEdgeConstraint 同口径：贴展示边外缘的那排件。
+  const maxEdge = Math.max(...source.map(item => edgeSign * (item.zMm + edgeSign * item.widthMm / 2)));
+  const isDisplay = item => Math.abs(edgeSign * (item.zMm + edgeSign * item.widthMm / 2) - maxEdge) < 0.01;
+  const inwardness = item => -edgeSign * item.zMm;
+  const validate = placements => {
+    if (!placementsValid(placements, options.usablePallet || options.pallet, options.overhangMm)) return false;
+    if (!normalizeEdgeConstraint(placements, options)) return false;
+    if (options.layerRules?.enabled && !rowMarginRuleSatisfied(placements, options)) return false;
+    return true;
+  };
+  const attempts = [];
+
+  // 策略一：镜像成对剥离。对子排序键：非展示排优先，其后从最内层拆起。
+  const groups = new Map();
+  for (const item of source) {
+    const key = `${Math.round(Math.abs(item.xMm) * 10)}:${Math.round(item.zMm * 10)}:${item.orientation}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const pairGroups = [];
+  const singleGroups = [];
+  for (const members of groups.values()) {
+    if (members.length >= 2) pairGroups.push(members.slice(0, 2));
+    else singleGroups.push(members[0]);
+  }
+  pairGroups.sort((a, b) => {
+    const aDisplay = isDisplay(a[0]) ? 1 : 0;
+    const bDisplay = isDisplay(b[0]) ? 1 : 0;
+    if (aDisplay !== bDisplay) return aDisplay - bDisplay;
+    return inwardness(b[0]) - inwardness(a[0]);
+  });
+  const pairsToRemove = Math.floor(remove / 2);
+  if (pairsToRemove <= pairGroups.length) {
+    const dropSet = new Set();
+    for (let index = 0; index < pairsToRemove; index++) {
+      for (const item of pairGroups[index]) dropSet.add(item);
+    }
+    let feasible = true;
+    if (remove % 2 === 1) {
+      // 奇数缺口只能取中线上的单件，否则左右必失对称。
+      const centered = singleGroups
+        .filter(item => !dropSet.has(item) && Math.abs(item.xMm) < 0.5)
+        .sort((a, b) => inwardness(b) - inwardness(a))[0];
+      if (centered) dropSet.add(centered);
+      else feasible = false;
+    }
+    if (feasible) {
+      const kept = source.filter(item => !dropSet.has(item));
+      attempts.push({
+        kept,
+        droppedDisplay: [...dropSet].filter(isDisplay).length,
+      });
+    }
+  }
+
+  // 策略二：顺序切片兜底（内先外后两种横向次序 + 由外向内收拢）。
+  const orders = [
+    (a, b) => inwardness(b) - inwardness(a) || a.xMm - b.xMm,
+    (a, b) => inwardness(b) - inwardness(a) || b.xMm - a.xMm,
+    (a, b) => Math.abs(b.xMm) - Math.abs(a.xMm) || inwardness(b) - inwardness(a),
+  ];
+  for (const order of orders) {
+    const ordered = [...source].sort(order);
+    const removed = ordered.slice(0, remove);
+    attempts.push({
+      kept: ordered.slice(remove),
+      droppedDisplay: removed.filter(isDisplay).length,
+    });
+  }
+
+  let bestAttempt = null;
+  for (const attempt of attempts) {
+    const placements = recentreBothAxes(attempt.kept.map(item => ({ ...item })));
+    if (!validate(placements)) continue;
+    const meanX = placements.reduce((sum, item) => sum + item.xMm, 0) / placements.length;
+    const score = Math.abs(meanX) + attempt.droppedDisplay * 1000;
+    if (!bestAttempt || score < bestAttempt.score) bestAttempt = { placements, score };
+  }
+  return bestAttempt ? bestAttempt.placements : null;
+}
+
+// 平面结构规整度：各朝向条带在 X 向的跨度极差。
+// 0 表示所有条带端面完全齐平（矩形轮廓），值越大轮廓越呈参差阶梯。
+// 仅作同件数候选之间的相对比较用。
+function bandSpanRaggedness(placements) {
+  const bands = new Map();
+  for (const item of placements) {
+    const key = `${item.lengthMm}x${item.widthMm}`;
+    if (!bands.has(key)) bands.set(key, { minX: Infinity, maxX: -Infinity });
+    const band = bands.get(key);
+    band.minX = Math.min(band.minX, item.xMm - item.lengthMm / 2);
+    band.maxX = Math.max(band.maxX, item.xMm + item.lengthMm / 2);
+  }
+  const spans = [...bands.values()].map(band => band.maxX - band.minX);
+  if (spans.length < 2) return 0;
+  return Math.max(...spans) - Math.min(...spans);
+}
+
 function evaluateLayer(placements, options) {
   const pallet = options.usablePallet || options.pallet;
   const area = pallet.lengthMm * pallet.widthMm;
@@ -874,6 +1023,10 @@ function layerOptions(options, layerIndex, posture = 'normal') {
       if (aMatch !== bMatch) return bMatch - aMatch;
     }
     if (templateApplies) {
+      // 规整度优先：同件数下先选展示带与填充带端面齐平（阶梯差小）的变体，
+      // 平面结构左右均衡、轮廓完整；面积比较仍保留在其后，兼顾约束一收益。
+      const raggedDiff = bandSpanRaggedness(a.placements) - bandSpanRaggedness(b.placements);
+      if (Math.abs(raggedDiff) > 1) return raggedDiff;
       // 单边模板同件数下优先覆盖面积更大的变体：
       // 既提高层间支撑，也缩小与顶层侧倒块的轮廓差——否则较窄模板会把
       // 约束一的必要出边从几毫米推高到几十毫米，直接损失顶层数量。
@@ -895,19 +1048,11 @@ function layerOptions(options, layerIndex, posture = 'normal') {
     const best = sorted[0];
     const maxCount = best.placements.length;
     if (posture === 'normal' && maxCount > 1) {
-      const innermostFirst = [...best.placements].sort((a, b) => b.zMm - a.zMm || b.xMm - a.xMm);
+      // 对称剥离派生：镜像成对移除 + 多序兜底，X/Z 双向居中，
+      // 保证降档层缺口左右均衡而不是集中在同一角（详见 deriveTierPlacements）。
       for (let remove = 1; remove < maxCount; remove++) {
-        const kept = innermostFirst.slice(remove);
-        let minZ = Infinity; let maxZ = -Infinity;
-        for (const item of kept) {
-          const lo = item.zMm - item.widthMm / 2; const hi = item.zMm + item.widthMm / 2;
-          if (lo < minZ) minZ = lo;
-          if (hi > maxZ) maxZ = hi;
-        }
-        const dzCenter = -(minZ + maxZ) / 2;
-        const placements = kept.map(item => ({ ...item, zMm: item.zMm + dzCenter }));
-        if (!placementsValid(placements, options.usablePallet || options.pallet, options.overhangMm)) continue;
-        if (options.layerRules?.enabled && !rowMarginRuleSatisfied(placements, options)) continue;
+        const placements = deriveTierPlacements(best, remove, options);
+        if (!placements) continue;
         pool.push({ ...best, placements });
       }
     }
