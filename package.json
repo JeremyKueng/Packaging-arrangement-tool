@@ -5,7 +5,8 @@
   "type": "module",
   "description": "纸手帕、软抽、卫卷中包三维动态排列工具",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "benchmark:pallet": "node scripts/benchmark-pallet.mjs"
   },
   "dependencies": {
     "jspdf": "^4.2.1",

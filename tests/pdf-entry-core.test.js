@@ -6,6 +6,7 @@ import {
   buildPdfEntries,
   buildMidpackPdfEntries,
   buildOuterPdfEntries,
+  buildPalletPdfEntries,
   buildDefaultPdfDescription,
   groupPdfEntries,
   effectivePdfScope,
@@ -62,6 +63,48 @@ test('大包和装箱按工段正确分类', () => {
   assert.equal(entries.length, 2);
   assert.equal(entries[0].stage, 'bigpack');
   assert.equal(entries[1].stage, 'case');
+});
+
+test('叠板条目与上游工段解耦，仅保留独立规格、算法输入与轻量方案摘要', () => {
+  const excluded = { temporary: 0, legacyUnbound: 0, invalidSource: 0 };
+  const lists = {
+    independent: [{
+      id: 'custom:p1', name: '软抽叠板', builtIn: false,
+      packageType: 'softpack',
+      unitSizeMm: { lengthMm: 600, widthMm: 400, heightMm: 300 },
+      pallet: { length: 1200, width: 1000, height: 160 }, loadHeightMm: 1640, heightLimitMm: 1800,
+      layerStrategy: 'cyclic-interlock', basePattern: ['A', 'A', 'B'],
+      faceConstraint: { enabled: true, unitFace: 'long-side', layout: 'edge-band-max' },
+      softpackOptions: { cornerProtectorsEnabled: true, cornerLossLengthMm: 10, cornerLossWidthMm: 5, allowTopSideLay: true },
+      solution: {
+        totalCount: 8, layerCount: 2, itemsPerLayer: [4, 4], actualLoadHeightMm: 600, totalHeightMm: 760,
+        surfaceUtilization: .8, fullPalletRate: .8, volumeUtilization: .5, minSupportRatio: .9,
+        remainingLengthMm: 0, remainingWidthMm: 200, remainingHeightMm: 1040,
+      },
+      solutionId: 'solution:pallet-layout-v2:test',
+      algorithmInput: { packageType: 'softpack', unit: { lengthMm: 600, widthMm: 400, heightMm: 300 }, loadHeightMm: 1640 },
+    }],
+  };
+  const entries = buildPalletPdfEntries(['softdraw'], lists, excluded);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].stage, 'pallet');
+  assert.equal(entries[0].productType, 'pallet');
+  assert.equal(entries[0].sourceType, 'softpack');
+  assert.equal(entries[0].presetSnapshot.unitSizeMm.lengthMm, 600);
+  assert.equal(entries[0].presetSnapshot.placementList, undefined);
+  assert.equal(entries[0].presetSnapshot.solutionId, 'solution:pallet-layout-v2:test');
+  assert.equal(entries[0].presetSnapshot.algorithmInput.loadHeightMm, 1640);
+  const description = buildDefaultPdfDescription(entries[0]);
+  assert.match(description, /叠板形态：软包/);
+  assert.match(description, /托板规格：1200×1000×160 mm/);
+  assert.match(description, /叠放结果：每层件数4 \/ 4；叠放层数2层；总数量8件/);
+  assert.match(description, /台板剩余量：长0 mm、宽200 mm、高1040 mm/);
+  assert.match(description, /平面率：80\.0%/);
+  assert.match(description, /满板率：33\.8%/);
+  assert.match(description, /带板高度：760 mm/);
+  assert.match(description, /使用四护角/);
+  assert.match(description, /H 面向下侧倒/);
+  assert.match(description, /至少保留一排展示面/);
 });
 
 test('直装与经中包路径可区分', () => {

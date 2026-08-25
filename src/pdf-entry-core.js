@@ -6,8 +6,8 @@ import { catalog, normalizeProductSizeOverride, resolveCorelessRollCrossSection,
 import { deriveCartonNaming } from './carton-naming.js';
 import { caseDividerRequirement } from './case-divider.js';
 
-export const STAGE_NAMES = { product: '单元定义', midpack: '中包工段', bigpack: '大包工段', case: '装箱工段' };
-const STAGE_ORDER = { product: 0, midpack: 1, bigpack: 2, case: 3 };
+export const STAGE_NAMES = { product: '单元定义', midpack: '中包工段', bigpack: '大包工段', case: '装箱工段', pallet: '叠板工段' };
+const STAGE_ORDER = { product: 0, midpack: 1, bigpack: 2, case: 3, pallet: 4 };
 
 // ===== 业务词典：把内部枚举转换为正式包装说明，不泄露 flat/side/z-/A端/B端 等程序参数 =====
 const PRODUCT_SHORT_NAME = { handkerchief: '纸手帕', softdraw: '软抽', roll: '卫卷' };
@@ -330,6 +330,51 @@ function describeOuterEntry(entry) {
   return lines.join('\n');
 }
 
+function describePalletEntry(entry) {
+  const s = entry.presetSnapshot || {};
+  const size = s.unitSizeMm || {};
+  const solution = s.solution || {};
+  const packageType = s.packageType === 'softpack' || entry.sourceType === 'softpack' ? 'softpack' : 'case';
+  const packageName = packageType === 'softpack' ? '软包' : '纸箱';
+  const pattern = Array.isArray(s.basePattern) && s.basePattern.length ? s.basePattern.join('') : 'AAB';
+  const strategy = s.layerStrategy === 'same' ? '同向码放' : s.layerStrategy === 'alternate' ? 'A/B逐层交替' : `循环错层（${pattern}→${pattern.slice(1) + pattern[0]}→${pattern.slice(2) + pattern.slice(0, 2)}）`;
+  const edgeLayout = s.faceConstraint?.layout === 'edge-exposure'
+    || s.faceConstraint?.layout === 'edge-band-max'
+    || s.faceConstraint?.layout === 'edge-band-compact'
+    ? '；至少保留一排展示面，正向排数及旋转填充由尺寸和护角损耗自动计算'
+    : '';
+  const face = s.faceConstraint?.enabled
+    ? `；托盘其中一条长边展示${s.faceConstraint.unitFace === 'short-side' ? '单元短侧面' : '单元长侧面'}${edgeLayout}`
+    : '';
+  const corner = packageType === 'softpack' && s.softpackOptions?.cornerProtectorsEnabled
+    ? `；使用四护角，长向/宽向单侧各扣减${s.softpackOptions.cornerLossLengthMm || 0}/${s.softpackOptions.cornerLossWidthMm || 0} mm`
+    : '';
+  const sideLayMode = s.softpackOptions?.topSideLayMode
+    || (s.softpackOptions?.allowTopSideLay ? 'auto' : 'off');
+  const sideLay = packageType !== 'softpack' || sideLayMode === 'off'
+    ? ''
+    : sideLayMode === 'force'
+      ? '；强制生成顶层 H 面向下侧倒示例'
+      : '；允许在增件时采用顶层 H 面向下侧倒';
+  const loadHeight = s.loadHeightMm ?? Math.max(0, (s.heightLimitMm || 0) - 160);
+  const totalHeight = Number(solution.totalHeightMm) || 0;
+  const actualLoadHeight = Math.max(0, Number(solution.actualLoadHeightMm) || Math.max(0, totalHeight - 160));
+  const allowedTotalHeight = Number(loadHeight) + 160;
+  const surfaceUtilization = Number(solution.surfaceUtilization ?? solution.fullPalletRate ?? solution.footprintUtilization) || 0;
+  const heightUtilization = allowedTotalHeight > 0 ? Math.min(1, (actualLoadHeight + 160) / allowedTotalHeight) : 0;
+  const fullPalletRate = Math.min(1, surfaceUtilization * heightUtilization);
+  const remainingText = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)} mm` : '未记录';
+  return [
+    `叠板形态：${packageName}（与上游工段解耦）。`,
+    `单件箱规：${size.lengthMm || 0}×${size.widthMm || 0}×${size.heightMm || 0} mm（长×宽×高）。`,
+    `托板规格：1200×1000×160 mm；可摆放高度${loadHeight} mm，总高上限${loadHeight + 160} mm。`,
+    `叠放结果：每层件数${Array.isArray(solution.itemsPerLayer) && solution.itemsPerLayer.length ? solution.itemsPerLayer.join(' / ') : '未记录'}；叠放层数${solution.layerCount ?? 0}层；总数量${solution.totalCount ?? entry.count ?? 0}件。`,
+    `台板剩余量：长${remainingText(solution.remainingLengthMm)}、宽${remainingText(solution.remainingWidthMm)}、高${remainingText(solution.remainingHeightMm ?? Math.max(0, Number(loadHeight) - actualLoadHeight))}。`,
+    `层间方式：${strategy}${face}${corner}${sideLay}。`,
+    `平面率：${(surfaceUtilization * 100).toFixed(1)}%；满板率：${(fullPalletRate * 100).toFixed(1)}%（平面率 ×〔实际叠放高度+160 mm托盘〕÷〔可叠放高度+160 mm托盘〕）；带板高度：${totalHeight} mm。`,
+  ].join('\n');
+}
+
 // 生成条目的默认业务说明（结构化多行纯文字，可搜索、可复制，不泄露内部枚举）。
 export function buildDefaultPdfDescription(entry) {
   switch (entry.stage) {
@@ -337,6 +382,7 @@ export function buildDefaultPdfDescription(entry) {
     case 'midpack': return describeMidpackEntry(entry);
     case 'bigpack':
     case 'case': return describeOuterEntry(entry);
+    case 'pallet': return describePalletEntry(entry);
     default: return '';
   }
 }
@@ -393,9 +439,60 @@ export function groupPdfEntries(entries) {
 export function effectivePdfScope(entries) {
   const included = entries.filter(entry => entry.exportOverride.included);
   return {
-    stages: ['product', 'midpack', 'bigpack', 'case'].filter(stage => included.some(entry => entry.stage === stage)),
-    productTypes: Object.keys(catalog).filter(type => included.some(entry => entry.productType === type)),
+    stages: ['product', 'midpack', 'bigpack', 'case', 'pallet'].filter(stage => included.some(entry => entry.stage === stage)),
+    productTypes: [...Object.keys(catalog), 'pallet'].filter(type => included.some(entry => entry.productType === type)),
   };
+}
+
+// 叠板 v2：方案与上游品类/预设解耦，只区分纸箱与软包。
+export function buildPalletPdfEntries(productTypes, palletLists, excluded) {
+  const entries = [];
+  const independent = Array.isArray(palletLists?.independent)
+    ? palletLists.independent
+    : productTypes.flatMap(productType => palletLists?.[productType] || []);
+  for (const preset of independent) {
+      if (preset.id === 'temporary' || preset.builtIn) { excluded.temporary++; continue; }
+      const packageType = preset.packageType === 'softpack' || preset.source?.type === 'bigpack' ? 'softpack' : 'case';
+      const count = Number(preset.solution?.totalCount) || (Array.isArray(preset.placementList) ? preset.placementList.length : 0);
+      if (count <= 0) { excluded.invalidSource++; continue; }
+      entries.push({
+        id: `pallet:${preset.id}`,
+        stage: 'pallet',
+        stageName: STAGE_NAMES.pallet,
+        productType: 'pallet',
+        productName: packageType === 'softpack' ? '软包' : '纸箱',
+        sourceType: packageType,
+        sourcePath: `${packageType === 'softpack' ? '软包' : '纸箱'} → 叠板`,
+        sourcePresetId: null,
+        sourcePresetName: null,
+        sourceSnapshot: { packageType },
+        presetId: preset.id,
+        presetName: preset.name,
+        presetSnapshot: {
+          packageType,
+          unitSizeMm: { ...(preset.unitSizeMm || {}) },
+          pallet: { ...(preset.pallet || {}) },
+          loadHeightMm: preset.loadHeightMm,
+          heightLimitMm: preset.heightLimitMm,
+          heightIncludesPallet: preset.heightIncludesPallet !== false,
+          layerStrategy: preset.layerStrategy,
+          basePattern: Array.isArray(preset.basePattern) ? [...preset.basePattern] : [],
+          faceConstraint: preset.faceConstraint ? { ...preset.faceConstraint } : null,
+          softpackOptions: preset.softpackOptions ? { ...preset.softpackOptions } : null,
+          showFaceLabels: preset.showFaceLabels !== false,
+          algorithmVersion: preset.algorithmVersion || null,
+          solutionId: preset.solutionId || null,
+          algorithmInput: preset.algorithmInput ? { ...preset.algorithmInput } : null,
+          solution: preset.solution ? { ...preset.solution } : null,
+        },
+        count,
+        foldedCount: count,
+        loadFace: null,
+        unitPosture: null,
+        unitFacing: null,
+      });
+  }
+  return entries;
 }
 
 // 统一入口：工段 → 品类 → 来源路径 → 方案名称 稳定排序。
@@ -408,6 +505,7 @@ export function buildPdfEntries(options, lists = {}) {
   if (stages.includes('midpack')) entries.push(...buildMidpackPdfEntries(productTypes, lists.midpack || {}));
   if (stages.includes('bigpack')) entries.push(...buildOuterPdfEntries('bigpack', productTypes, lists.outer?.bigpack, excluded));
   if (stages.includes('case')) entries.push(...buildOuterPdfEntries('case', productTypes, lists.outer?.case, excluded));
+  if (stages.includes('pallet')) entries.push(...buildPalletPdfEntries(productTypes, lists.pallet, excluded));
   entries.sort((a, b) => {
     if (a.stage !== b.stage) return STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage];
     if (a.productType !== b.productType) return productTypes.indexOf(a.productType) - productTypes.indexOf(b.productType);

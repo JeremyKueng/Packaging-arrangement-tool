@@ -50,7 +50,7 @@
     .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 9px; background: #e9eff7; }
     .segmented button { height: 32px; border: 0; border-radius: 7px; color: #607087; background: transparent; font-size: 12px; }
     .segmented button.active { color: #fff; background: var(--blue); box-shadow: 0 3px 10px rgba(23, 92, 211, .25); }
-    .workflow-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 5px; }
+    .workflow-steps { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px; }
     .workflow-steps button { min-width: 0; height: 42px; padding: 0 4px; border: 1px solid #d3deea; border-radius: 8px; color: #5a6a80; background: #fff; font-size: 11px; line-height: 1.15; }
     .workflow-steps button.active { border-color: var(--blue); color: #fff; background: var(--blue); box-shadow: 0 4px 12px rgba(23,92,211,.20); }
     .workflow-note { margin-top: 9px; color: #637083; font-size: 11px; line-height: 1.5; }
@@ -157,6 +157,34 @@
     .axis-key span:before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
     .axis-key .x:before { background: #ea4335; } .axis-key .y:before { background: #34a853; } .axis-key .z:before { background: #4285f4; }
     .axis-key .handle:before { background: #12a66a; } .axis-key .bottom:before { background: #f28c28; }
+    .pallet-metric-board {
+      position: absolute;
+      left: 22px;
+      bottom: 58px;
+      z-index: 2;
+      width: min(324px, calc(100% - 44px));
+      padding: 10px;
+      border: 1px solid rgba(190, 207, 225, .95);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .90);
+      box-shadow: 0 8px 24px rgba(29, 50, 76, .11);
+      backdrop-filter: blur(12px);
+      pointer-events: none;
+    }
+    .pallet-metric-board[hidden] { display: none; }
+    .pallet-metric-title { margin: 0 0 7px; color: #1f4f86; font-size: 12px; font-weight: 750; }
+    .pallet-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .pallet-metric-wide { grid-column: 1 / -1; }
+    .pallet-metric { min-width: 0; padding: 6px 8px; border: 1px solid #dce6f1; border-radius: 8px; background: rgba(247, 250, 254, .92); }
+    .pallet-metric-label { overflow: hidden; color: #637083; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+    .pallet-metric-value { margin-top: 2px; color: #175cd3; font-size: 14px; font-weight: 750; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .pallet-metric-board[data-invalid="true"] .pallet-metric-value { color: #8a98aa; }
+    .webgl-fallback { position: absolute; inset: 20px; z-index: 20; display: grid; place-content: center; gap: 10px; padding: 28px; border: 1px solid #e1a93c; border-radius: 16px; color: #5a4215; background: rgba(255, 249, 232, .96); box-shadow: 0 12px 30px rgba(92, 70, 22, .12); text-align: center; }
+    .webgl-fallback[hidden] { display: none; }
+    .webgl-fallback h2 { margin: 0; color: #805b0a; font-size: 18px; }
+    .webgl-fallback p { max-width: 520px; margin: 0; line-height: 1.55; }
+    .webgl-fallback .fallback-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+    .webgl-fallback .fallback-warning { color: #a23b16; font-size: 12px; }
     .direction-note { margin-top: 7px; color: #77859a; font-size: 11px; line-height: 1.45; }
     .file-launch-notice { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; padding: 24px; background: #edf4f9; }
     .file-launch-notice[hidden] { display: none; }
@@ -201,6 +229,7 @@
       .summary-meta { display: grid; gap: 2px; }
       .viewbar { display: grid; grid-template-columns: repeat(2, 1fr); }
       .hint { display: none; }
+      .pallet-metric-board { left: 12px; bottom: 52px; width: min(324px, calc(100% - 24px)); }
     }
   </style>
   <script type="importmap">
@@ -280,6 +309,7 @@
         <button class="active" data-step="midpack">中包工段</button>
         <button data-step="bigpack">大包工段</button>
         <button data-step="case">装箱工段</button>
+        <button data-step="pallet">叠板工段</button>
       </nav>
       <div class="workflow-path" id="workflowPath"></div>
 
@@ -389,6 +419,40 @@
           <div class="section-title">装箱工段</div>
           <div class="outer-editor-slot" data-stage="case"></div>
         </section>
+
+        <section class="section" id="stagePanel-pallet" hidden>
+          <div class="section-title"><span>叠板工段</span><span id="palletCountTag">—</span></div>
+          <div class="source-summary" id="palletSourceSummary"></div>
+          <div class="field"><label for="palletPackageType">叠板包装形态</label><select id="palletPackageType"><option value="case">纸箱</option><option value="softpack">软包</option></select></div>
+          <div class="grid-3">
+            <div class="field"><label for="palletUnitLengthMm">单件长 mm</label><input id="palletUnitLengthMm" type="number" min="1" max="5000" value="600"></div>
+            <div class="field"><label for="palletUnitWidthMm">单件宽 mm</label><input id="palletUnitWidthMm" type="number" min="1" max="5000" value="400"></div>
+            <div class="field"><label for="palletUnitHeightMm">单件高 mm</label><input id="palletUnitHeightMm" type="number" min="1" max="5000" value="300"></div>
+          </div>
+          <div class="direction-note">叠板阶段的长、宽、高是独立箱规；上游小粒尺寸和内部排列不参与托盘计算。</div>
+          <div class="source-summary pallet-fixed-spec">固定托板：1200 × 1000 × 160 mm；总高度＝可摆放高度＋160 mm 托板。</div>
+          <div class="field"><label for="palletLoadHeightMm">可摆放高度 mm</label><input id="palletLoadHeightMm" type="number" min="1040" max="2340" step="50" value="1640"></div>
+          <div id="palletSoftpackOptions" hidden>
+            <div class="field"><label for="palletCornerProtectors">四个护角</label><select id="palletCornerProtectors"><option value="off">不使用</option><option value="on">使用（扣减可用长宽）</option></select></div>
+            <div class="grid-2">
+              <div class="field"><label for="palletCornerLossLengthMm">长向单侧损耗 mm</label><input id="palletCornerLossLengthMm" type="number" min="0" max="200" step="5" value="0"></div>
+              <div class="field"><label for="palletCornerLossWidthMm">宽向单侧损耗 mm</label><input id="palletCornerLossWidthMm" type="number" min="0" max="200" step="5" value="0"></div>
+            </div>
+            <div class="field"><label for="palletAllowTopSideLay">顶层极限侧倒</label><select id="palletAllowTopSideLay"><option value="off">不允许</option><option value="auto">允许（仅增件时自动采用）</option><option value="force">强制生成 H 面向下示例</option></select></div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label for="palletLayerStrategy">层间码放方式</label><select id="palletLayerStrategy"><option value="cyclic-interlock">循环错层（AAB→ABA→BAA）</option><option value="optimize">自动稳定错层</option><option value="alternate">A/B逐层交替</option><option value="same">全部同向</option></select></div>
+            <div class="field"><label for="palletBasePattern">基础排样</label><select id="palletBasePattern"><option value="AAB">AAB（自动循环）</option><option value="AB">AB（自动循环）</option><option value="A">全A</option><option value="B">全B</option></select></div>
+          </div>
+          <div class="field"><label for="palletFaceConstraintEnabled">指定托盘长边展示面</label><select id="palletFaceConstraintEnabled"><option value="off">不限制</option><option value="long-side">长侧面·单边展示（自动组合）</option><option value="short-side">短侧面·单边展示（自动组合）</option></select></div>
+          <div class="direction-note">单边展示仅约束托盘其中一条长边：展示边至少保留一排目标朝向，算法自动枚举正向排数；其余区域旋转 90° 填充，不会沿托盘中线拆分。件数和正向排数均随单件尺寸、护角损耗和托盘边界动态计算。</div>
+          <div class="field"><label for="palletShowFaceLabels">L/W 面标识</label><select id="palletShowFaceLabels"><option value="on">显示</option><option value="off">隐藏</option></select></div>
+          <div class="definition-card" id="palletDefinitionCard" aria-live="polite"></div>
+          <div class="pallet-candidates" id="palletCandidates"></div>
+          <div class="preset-actions"><button class="preset-save" id="savePalletPresetBtn">保存叠板方案</button><button class="preset-copy" id="newPalletPresetBtn">新建临时方案</button></div>
+          <div class="field"><label for="palletPresetName">叠板方案名称</label><input id="palletPresetName" type="text" maxlength="60" value="叠板临时方案"></div>
+          <div class="preset-status" id="palletStatus" role="status" aria-live="polite"></div>
+        </section>
       </div>
 
       <footer class="stage-action-bar" id="stageActionBar">
@@ -410,11 +474,32 @@
         <div class="summary-meta"><span><span id="summaryCountLabel">数量</span> <b id="summaryCount">18</b></span><span id="summaryFoldMeta" hidden><span id="summaryFoldLabel">折合单粒</span> <b id="summaryFoldCount">—</b></span><span>组合尺寸 <b id="summarySize">—</b></span></div>
         </div>
         <div class="viewbar" aria-label="视角切换">
-          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="viewSettingsBtn" type="button">视图设置</button>
+          <button data-view="perspective">透视</button><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="top">俯视</button><button data-view="handle" data-direction-view>提手端</button><button data-view="bagbottom" data-direction-view>袋底端</button><button data-view="loadface" data-outer-direction-view hidden>装入面</button><button id="caseMouthBtn" data-case-control type="button" hidden aria-pressed="false">打开箱口</button><button id="caseXrayBtn" data-case-control type="button" hidden aria-pressed="true">关闭箱体透视</button><button id="caseNameBtn" data-case-control type="button" hidden aria-pressed="true">显示装箱名称</button><button id="outerHighlightBtn" type="button" hidden aria-pressed="false" title="突出显示一个装入单元，开启后点击箱内单元可切换突出位置">突出单元</button><button id="viewSettingsBtn" type="button">视图设置</button>
         </div>
       </div>
       <div class="hint">左键拖动物体：稳定环绕 · 滚轮：缩放 · 右键：平移</div>
+      <section class="webgl-fallback" id="webglFallback" hidden role="alert" aria-live="assertive">
+        <h2>3D 视图暂不可用</h2>
+        <p id="webglFallbackDetail">当前浏览器或设备无法创建 WebGL 渲染器。参数编辑、叠板计算和预设 JSON 管理仍可继续使用。</p>
+        <p class="fallback-warning">当前已禁用 3D PNG 与 PDF 导出，请使用支持 WebGL 的最新版 Chrome、Edge、Firefox 或 Safari 后重试。</p>
+        <div class="fallback-actions">
+          <button class="secondary" id="webglOpenDataManageBtn" type="button">打开预设 JSON 管理</button>
+          <button class="secondary" id="webglReloadBtn" type="button">重新检测 3D</button>
+        </div>
+      </section>
       <div class="axis-key"><span class="handle" id="handleLegend">手挽耳</span><span class="bottom" id="bottomLegend">袋底端</span><span class="x" id="xLegend">排数 X</span><span class="y" id="yLegend">层数 Y</span><span class="z" id="zLegend">每排包数 Z</span></div>
+      <section class="pallet-metric-board" id="palletMetricBoard" hidden aria-live="polite" aria-label="叠板指标看板">
+        <div class="pallet-metric-title">叠板结果看板</div>
+        <div class="pallet-metric-grid">
+          <div class="pallet-metric"><div class="pallet-metric-label">每层件数</div><div class="pallet-metric-value" id="palletMetricItemsPerLayer">—</div></div>
+          <div class="pallet-metric"><div class="pallet-metric-label">叠放层数</div><div class="pallet-metric-value" id="palletMetricLayers">—</div></div>
+          <div class="pallet-metric"><div class="pallet-metric-label">总数量</div><div class="pallet-metric-value" id="palletMetricTotalCount">—</div></div>
+          <div class="pallet-metric"><div class="pallet-metric-label">平面率</div><div class="pallet-metric-value" id="palletMetricSurfaceRate">—</div></div>
+          <div class="pallet-metric"><div class="pallet-metric-label">满板率</div><div class="pallet-metric-value" id="palletMetricFullRate">—</div></div>
+          <div class="pallet-metric"><div class="pallet-metric-label">带板高度</div><div class="pallet-metric-value" id="palletMetricTotalHeight">—</div></div>
+          <div class="pallet-metric pallet-metric-wide"><div class="pallet-metric-label">台板剩余量（长 / 宽 / 高）</div><div class="pallet-metric-value" id="palletMetricRemaining">—</div></div>
+        </div>
+      </section>
       <button class="debug-stats-btn" id="copyStatsBtn" hidden>复制性能数据</button>
     </section>
   </main>
@@ -480,6 +565,7 @@
               <label><input type="checkbox" id="batchStageMidpack" checked> 中包</label>
               <label><input type="checkbox" id="batchStageBigpack" checked> 大包</label>
               <label><input type="checkbox" id="batchStageCase" checked> 装箱</label>
+              <label><input type="checkbox" id="batchStagePallet" checked> 叠板</label>
             </div>
 
             <div class="batch-section-title" style="margin-top:10px">产品品类</div>
@@ -520,16 +606,53 @@
     import * as THREE from 'three';
     import { OrbitControls } from './vendor/OrbitControls.js';
     import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
-    import { catalog, HANDLE_SIDES, ROLL_CORES, ROLL_BUNDLE_MODES, DIRECT_SPINS, SOFTDRAW_VARIANTS, SOFTDRAW_VARIANT_LABELS, HANGING_SIDE_DIRECTIONS, PACKAGING_LEVELS, LOAD_FACES, UNIT_POSTURES, UNIT_FACINGS, PRODUCT_ORIENTATIONS, LEGACY_UNIT_POSES, STACK_MODES, midpackHeightScale, packagingRules, SCENE_UNITS_PER_MM, DEFAULT_PRODUCT_SIZE_MM, defaultProductSizeMm, normalizeProductSizeOverride, resolveCorelessRollCrossSection, resolveProductDimensions } from './src/dimensions.js';
+    import { catalog, HANDLE_SIDES, ROLL_CORES, ROLL_BUNDLE_MODES, DIRECT_SPINS, SOFTDRAW_VARIANTS, SOFTDRAW_VARIANT_LABELS, HANGING_SIDE_DIRECTIONS, PACKAGING_LEVELS, WORKFLOW_STAGES, LOAD_FACES, UNIT_POSTURES, UNIT_FACINGS, PRODUCT_ORIENTATIONS, LEGACY_UNIT_POSES, STACK_MODES, midpackHeightScale, packagingRules, SCENE_UNITS_PER_MM, DEFAULT_PRODUCT_SIZE_MM, defaultProductSizeMm, normalizeProductSizeOverride, resolveCorelessRollCrossSection, resolveProductDimensions } from './src/dimensions.js';
     import { directionForSide, faceVector, loadFaceLabel, postureLabel, unitFacingLabel, unitOrientationDescription, packageUnitOrientationQuaternion, productOrientationQuaternion, directSpinQuaternion, rotatedSize, formatXzySize, rollUnitDims, dimsFor, productVisualScale, midpackArrangementMetrics } from './src/geometry-core.js';
     import { clampPresetNumber, outerLevelName, outerDefaults, normalizePreset, normalizeOuterPreset, mergeBuiltinOverridesPreservingExisting } from './src/preset-core.js';
     import { buildPdfEntries, groupPdfEntries, effectivePdfScope, STAGE_NAMES } from './src/pdf-entry-core.js';
+    import { optimizePalletLayout, formatPalletPlan, orientedSize, palletExposedFacesFor, getPalletLayoutCacheStats, PALLET_SIZE_MM, PALLET_HEIGHT_RANGE_MM, PALLET_LOAD_HEIGHT_RANGE_MM, PALLET_LAYOUT_CACHE_MAX_ENTRIES, PALLET_ALGORITHM_VERSION } from './src/pallet-core.js';
+    import { palletDefaults, normalizePalletPreset, capturePalletSource, isValidPalletSource } from './src/pallet-preset-core.js';
+    import { safeStorageGetResult, safeStorageSet, safeStorageRemove, storageErrorMessage } from './src/storage-core.js';
     import { deriveCartonNaming } from './src/carton-naming.js';
     import { CASE_DIVIDER_THICKNESS_MM, caseDividerRequirement, dividerBoundaryOffset, dividerUnitShift } from './src/case-divider.js';
 
     const PRESET_STORAGE_KEY = 'vida-midpack-presets-v1';
     const OUTER_PRESET_STORAGE_KEY = 'vida-outer-presets-v1';
     const PRODUCT_SIZE_STORAGE_KEY = 'vida-product-size-overrides-v1';
+    const PALLET_PRESET_STORAGE_KEY = 'vida-pallet-presets-v1';
+
+    function reportStorageIssue(operation) {
+      if (!operation || operation.ok) return;
+      const message = storageErrorMessage(operation);
+      console.warn('[Storage]', operation.error, message);
+      // 预设管理窗口始终保留为恢复入口；同时把错误写到当前工段状态，确保用户可见。
+      const ids = ['presetIoStatus', 'palletStatus', 'presetStatus', 'outerPresetStatus', 'productSizeStatus'];
+      for (const id of ids) {
+        const element = document.getElementById(id);
+        if (!element) continue;
+        element.textContent = message;
+        element.dataset.tone = 'error';
+        break;
+      }
+    }
+
+    function readStoredJson(key, fallback) {
+      const operation = safeStorageGetResult(key, fallback);
+      reportStorageIssue(operation);
+      return operation.value;
+    }
+
+    function writeStoredJson(key, value) {
+      const operation = safeStorageSet(key, value);
+      reportStorageIssue(operation);
+      return operation.ok;
+    }
+
+    function removeStoredJson(key) {
+      const operation = safeStorageRemove(key);
+      reportStorageIssue(operation);
+      return operation.ok;
+    }
 
     // —— PocketBay 用户系统接入 ——
     // 网关已完成登录；通过同源 GET /.pocketbay/user 获取当前用户。
@@ -569,19 +692,14 @@
 
     // 产品小粒尺寸覆盖（独立于 catalog，不直接修改 catalog[type].dimensions，避免恢复默认/JSON 导入/历史方案复现混乱）。
     function loadProductSizeOverrides() {
-      try {
-        const value = JSON.parse(localStorage.getItem(scopedKey(PRODUCT_SIZE_STORAGE_KEY)) || '{}');
-        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-      } catch (error) {
-        console.warn('小粒尺寸存储读取失败，已使用空存储。', error);
-        return {};
-      }
+      const value = readStoredJson(scopedKey(PRODUCT_SIZE_STORAGE_KEY), {});
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     }
 
     let productSizeOverrides = null;   // 在 initApp 中按用户身份加载
 
     function persistProductSizeOverrides() {
-      localStorage.setItem(scopedKey(PRODUCT_SIZE_STORAGE_KEY), JSON.stringify(productSizeOverrides));
+      return writeStoredJson(scopedKey(PRODUCT_SIZE_STORAGE_KEY), productSizeOverrides);
     }
 
     function defaultSizeForCurrentProduct(type = ui.category.value) {
@@ -601,13 +719,8 @@
     }
 
     function loadOuterPresetStore() {
-      try {
-        const value = JSON.parse(localStorage.getItem(scopedKey(OUTER_PRESET_STORAGE_KEY)) || '{}');
-        return value && typeof value === 'object' ? value : {};
-      } catch (error) {
-        console.warn('外包装方案存储读取失败，已使用空存储。', error);
-        return {};
-      }
+      const value = readStoredJson(scopedKey(OUTER_PRESET_STORAGE_KEY), {});
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     }
 
     let outerPresetStore = null;   // 在 initApp 中按用户身份加载
@@ -622,7 +735,33 @@
     }
 
     function persistOuterPresetStore() {
-      localStorage.setItem(scopedKey(OUTER_PRESET_STORAGE_KEY), JSON.stringify(outerPresetStore));
+      return writeStoredJson(scopedKey(OUTER_PRESET_STORAGE_KEY), outerPresetStore);
+    }
+
+    // 叠板方案独立存储，不混入外包装 rows/cols/layers 结构；仅保存已绑定的大包/装箱来源。
+    function loadPalletPresetStore() {
+      const value = readStoredJson(scopedKey(PALLET_PRESET_STORAGE_KEY), { custom: [] });
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : { custom: [] };
+    }
+
+    let palletPresetStore = null;
+
+    function persistPalletPresetStore() {
+      return writeStoredJson(scopedKey(PALLET_PRESET_STORAGE_KEY), palletPresetStore);
+    }
+
+    function palletPresetBucket() {
+      if (!palletPresetStore || typeof palletPresetStore !== 'object' || Array.isArray(palletPresetStore)) palletPresetStore = { custom: [] };
+      if (!Array.isArray(palletPresetStore.custom)) palletPresetStore.custom = [];
+      return palletPresetStore;
+    }
+
+    function getPalletPresetList() {
+      const packageType = palletDraft?.packageType || 'case';
+      const temporary = { id: 'temporary', ...palletDefaults(packageType), builtIn: true };
+      return [temporary, ...palletPresetBucket().custom
+        .filter(item => item && typeof item.id === 'string' && item.id.startsWith('custom:'))
+        .map(item => ({ id: item.id, ...normalizePalletPreset(item), builtIn: false }))];
     }
 
     function getOuterPresetList(level) {
@@ -644,14 +783,201 @@
       return [temporary,...custom];
     }
 
-    function loadPresetStore() {
-      try {
-        const value = JSON.parse(localStorage.getItem(scopedKey(PRESET_STORAGE_KEY)) || '{}');
-        return value && typeof value === 'object' ? value : {};
-      } catch (error) {
-        console.warn('预设存储读取失败，已使用空存储。', error);
-        return {};
+    function selectedPalletSource() {
+      return capturePalletSource({ packageType: ui.palletPackageType?.value || palletDraft?.packageType || 'case' });
+    }
+
+    function parsePalletPattern(value) {
+      return [...String(value || 'AAB')].filter(char => char === 'A' || char === 'B');
+    }
+
+    function palletFaceConstraintFromUi(value = ui.palletFaceConstraintEnabled.value) {
+      if (value === 'off') return { enabled: false, palletEdge: 'z-', unitFace: 'long-side', layout: 'auto', scope: 'edge-row' };
+      if (value === 'short-side') return { enabled: true, palletEdge: 'z-', unitFace: 'short-side', layout: 'edge-exposure', scope: 'edge-row' };
+      return { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure', scope: 'edge-row' };
+    }
+
+    function palletFaceConstraintUiValue(constraint = {}) {
+      if (!constraint?.enabled) return 'off';
+      if (constraint.unitFace === 'short-side') return 'short-side';
+      return 'long-side';
+    }
+
+    function palletOptionsFromUi() {
+      const packageType = ui.palletPackageType.value === 'softpack' ? 'softpack' : 'case';
+      return {
+        packageType,
+        unitSizeMm: {
+          lengthMm: ui.palletUnitLengthMm.value,
+          widthMm: ui.palletUnitWidthMm.value,
+          heightMm: ui.palletUnitHeightMm.value,
+        },
+        loadHeightMm: ui.palletLoadHeightMm.value,
+        layerStrategy: ui.palletLayerStrategy.value,
+        basePattern: parsePalletPattern(ui.palletBasePattern.value),
+        allowedOrientations: ['A', 'B'],
+        faceConstraint: palletFaceConstraintFromUi(),
+        softpackOptions: {
+          cornerProtectorsEnabled: packageType === 'softpack' && ui.palletCornerProtectors.value === 'on',
+          cornerLossLengthMm: ui.palletCornerLossLengthMm.value,
+          cornerLossWidthMm: ui.palletCornerLossWidthMm.value,
+          topSideLayMode: packageType === 'softpack' ? ui.palletAllowTopSideLay.value : 'off',
+          allowTopSideLay: packageType === 'softpack' && ui.palletAllowTopSideLay.value !== 'off',
+        },
+      };
+    }
+
+    function readPalletForm() {
+      const base = palletOptionsFromUi();
+      return normalizePalletPreset({
+        ...base,
+        id: palletSelection,
+        name: ui.palletPresetName.value.trim() || '叠板临时方案',
+        packageType: base.packageType,
+        showFaceLabels: ui.palletShowFaceLabels.value !== 'off',
+        algorithmVersion: palletPlan?.algorithmVersion || PALLET_ALGORITHM_VERSION,
+        solutionId: palletPlan?.solutionId || null,
+        algorithmInput: palletPlan?.options || base,
+        // 摆放坐标由算法输入稳定重算，不再写入可能包含数百个对象的大数组。
+        placementList: [],
+        solution: palletPlan ? {
+          totalCount: palletPlan.totalCount,
+          layerCount: palletPlan.layerCount,
+          itemsPerLayer: palletPlan.itemsPerLayer,
+          actualLoadHeightMm: palletPlan.actualLoadHeightMm,
+          totalHeightMm: palletPlan.totalHeightMm,
+          occupiedLengthMm: palletPlan.occupiedLengthMm,
+          occupiedWidthMm: palletPlan.occupiedWidthMm,
+          remainingLengthMm: palletPlan.remainingLengthMm,
+          remainingWidthMm: palletPlan.remainingWidthMm,
+          remainingHeightMm: palletPlan.remainingHeightMm,
+          heightUtilization: palletPlan.heightUtilization,
+          palletYieldRate: palletPlan.palletYieldRate,
+          surfaceUtilization: palletPlan.surfaceUtilization,
+          fullPalletRate: palletPlan.fullPalletRate,
+          volumeUtilization: palletPlan.volumeUtilization,
+          minSupportRatio: palletPlan.minSupportRatio,
+          pattern: palletPlan.pattern,
+        } : null,
+      }, palletDefaults(base.packageType));
+    }
+
+    function setPalletStatus(message = '', tone = '') {
+      ui.palletStatus.textContent = message;
+      ui.palletStatus.dataset.tone = tone;
+    }
+
+    function updatePalletMetricBoard(plan) {
+      const valid = Boolean(plan?.ok);
+      const percent = value => Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : '—';
+      const millimeters = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)} mm` : '—';
+      const layers = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)} 层` : '—';
+      if (ui.palletMetricBoard) ui.palletMetricBoard.dataset.invalid = valid ? 'false' : 'true';
+      if (ui.palletMetricFullRate) ui.palletMetricFullRate.textContent = valid ? percent(plan.fullPalletRate) : '—';
+      if (ui.palletMetricSurfaceRate) ui.palletMetricSurfaceRate.textContent = valid ? percent(plan.surfaceUtilization) : '—';
+      if (ui.palletMetricLayers) ui.palletMetricLayers.textContent = valid ? layers(plan.layerCount) : '—';
+      if (ui.palletMetricItemsPerLayer) ui.palletMetricItemsPerLayer.textContent = valid ? plan.itemsPerLayer.join(' / ') : '—';
+      if (ui.palletMetricTotalCount) ui.palletMetricTotalCount.textContent = valid ? `${plan.totalCount} 件` : '—';
+      if (ui.palletMetricTotalHeight) ui.palletMetricTotalHeight.textContent = valid ? millimeters(plan.totalHeightMm) : '—';
+      if (ui.palletMetricRemaining) ui.palletMetricRemaining.textContent = valid
+        ? `长 ${millimeters(plan.remainingLengthMm)} / 宽 ${millimeters(plan.remainingWidthMm)} / 高 ${millimeters(plan.remainingHeightMm)}`
+        : '—';
+    }
+
+    function renderPalletPlan(plan) {
+      updatePalletMetricBoard(plan);
+      ui.palletDefinitionCard.replaceChildren();
+      ui.palletCandidates.replaceChildren();
+      const heading = document.createElement('strong');
+      heading.textContent = '叠板优化结果';
+      ui.palletDefinitionCard.appendChild(heading);
+      if (!plan?.ok) {
+        const p = document.createElement('p'); p.textContent = formatPalletPlan(plan); ui.palletDefinitionCard.appendChild(p);
+        ui.palletCountTag.textContent = '无可行方案';
+        return;
       }
+      const lines = [
+        formatPalletPlan(plan),
+        `每层件数：${plan.itemsPerLayer.join(' / ')}；叠放层数：${plan.layerCount}层；总数量：${plan.totalCount}件。`,
+        `台板剩余量：长 ${plan.remainingLengthMm.toFixed(0)} mm、宽 ${plan.remainingWidthMm.toFixed(0)} mm、高 ${plan.remainingHeightMm.toFixed(0)} mm。`,
+        `平面率：${(plan.surfaceUtilization * 100).toFixed(1)}%；满板率：${(plan.fullPalletRate * 100).toFixed(1)}%〔平面率 ×（实际叠放高度+160 mm）÷（可叠放高度+160 mm）〕；带板高度：${plan.totalHeightMm.toFixed(0)} mm。`,
+        `单层布局：${plan.layoutLabel || '自动排样'}。`,
+        `最低支撑率：${(plan.minSupportRatio * 100).toFixed(1)}%；重心偏移：${plan.centerOffsetMm.toFixed(1)} mm。`,
+        plan.topSideLayApplied
+          ? `顶层侧倒：已生成 H 面向下顶层${plan.topSideLayForced ? '（强制示例模式，不参与最高件数优选）' : '（自动增件方案）'}。`
+          : plan.topSideLayMode === 'auto'
+            ? '顶层侧倒：当前高度或件数条件下没有更优的 H 面向下方案。'
+            : plan.topSideLayMode === 'force'
+              ? '顶层侧倒：当前可摆放高度不足，无法生成 H 面向下示例。'
+              : '',
+        `稳定性：${plan.stability.boundaryValid && plan.stability.overlapFree && plan.stability.supportValid && plan.stability.centerValid ? '通过' : '需复核'}。`,
+      ];
+      lines.filter(Boolean).forEach(line => { const p = document.createElement('p'); p.textContent = line; ui.palletDefinitionCard.appendChild(p); });
+      const candidate = document.createElement('div');
+      candidate.className = 'pallet-candidate';
+      candidate.textContent = `Top 1：${plan.totalCount} 件 · ${plan.layerCount} 层 · ${plan.layoutLabel || '自动排样'}`;
+      ui.palletCandidates.appendChild(candidate);
+      ui.palletCountTag.textContent = `${plan.totalCount} 件`;
+    }
+
+    function syncPalletSourceUi() {
+      const isSoftpack = ui.palletPackageType.value === 'softpack';
+      ui.palletSoftpackOptions.hidden = !isSoftpack;
+      ui.palletSourceSummary.textContent = isSoftpack
+        ? '叠板形态：软包。单件尺寸与上游工段解耦；可人工设置护角损耗与顶层 H 面侧倒。'
+        : '叠板形态：纸箱。单件尺寸与上游工段解耦，按独立箱规优化。';
+    }
+
+    function runPalletOptimizer() {
+      if (!isPallet()) return;
+      const options = palletOptionsFromUi();
+      palletPlan = optimizePalletLayout(options);
+      palletDraft = readPalletForm();
+      renderPalletPlan(palletPlan);
+      syncPalletSourceUi();
+      rebuild(false);
+    }
+
+    function applyPalletPreset(preset = getPalletPresetList().find(item => item.id === palletSelection)) {
+      const values = normalizePalletPreset(preset || palletDefaults('case'), palletDefaults('case'));
+      palletSelection = values.id || 'temporary';
+      palletDraft = values;
+      ui.palletPresetName.value = values.name;
+      ui.palletPackageType.value = values.packageType;
+      ui.palletUnitLengthMm.value = values.unitSizeMm.lengthMm;
+      ui.palletUnitWidthMm.value = values.unitSizeMm.widthMm;
+      ui.palletUnitHeightMm.value = values.unitSizeMm.heightMm;
+      ui.palletLoadHeightMm.value = values.loadHeightMm;
+      ui.palletCornerProtectors.value = values.softpackOptions?.cornerProtectorsEnabled ? 'on' : 'off';
+      ui.palletCornerLossLengthMm.value = values.softpackOptions?.cornerLossLengthMm || 0;
+      ui.palletCornerLossWidthMm.value = values.softpackOptions?.cornerLossWidthMm || 0;
+      ui.palletAllowTopSideLay.value = values.softpackOptions?.topSideLayMode || (values.softpackOptions?.allowTopSideLay ? 'auto' : 'off');
+      ui.palletShowFaceLabels.value = values.showFaceLabels === false ? 'off' : 'on';
+      ui.palletLayerStrategy.value = values.layerStrategy;
+      ui.palletBasePattern.value = values.basePattern.join('') || 'AAB';
+      ui.palletFaceConstraintEnabled.value = palletFaceConstraintUiValue(values.faceConstraint);
+      syncPalletSourceUi();
+      palletPlan = optimizePalletLayout(palletOptionsFromUi());
+      renderPalletPlan(palletPlan);
+      setPalletStatus(values.id === 'temporary' ? '当前为叠板临时方案；可保存为业务方案。' : '已加载已保存叠板方案。');
+    }
+
+    function populatePalletPresets(requestedId = palletSelection || 'temporary', draft = null) {
+      const list = getPalletPresetList();
+      const requested = list.some(item => item.id === requestedId) ? requestedId : 'temporary';
+      palletSelection = requested;
+      const selected = requested === 'temporary' && draft ? normalizePalletPreset(draft, palletDefaults('case')) : list.find(item => item.id === requested) || list[0];
+      applyPalletPreset(selected);
+    }
+
+    function rememberPalletDraft() {
+      if (!isPallet()) return;
+      palletDraft = readPalletForm();
+    }
+
+    function loadPresetStore() {
+      const value = readStoredJson(scopedKey(PRESET_STORAGE_KEY), {});
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     }
 
     let presetStore = null;   // 在 initApp 中按用户身份加载
@@ -666,7 +992,7 @@
     }
 
     function persistPresetStore() {
-      localStorage.setItem(scopedKey(PRESET_STORAGE_KEY), JSON.stringify(presetStore));
+      return writeStoredJson(scopedKey(PRESET_STORAGE_KEY), presetStore);
     }
 
     function getPresetList(type) {
@@ -691,7 +1017,9 @@
       presetName: $('presetName'), presetStatus: $('presetStatus'), batchStatus: $('batchExportStatus'),
       rowsLabel: $('rowsLabel'), colsLabel: $('colsLabel'), layersLabel: $('layersLabel'), definitionCard: $('definitionCard'),
       xLegend: $('xLegend'), yLegend: $('yLegend'), zLegend: $('zLegend'),
+      exportBtn: $('exportBtn'), batchPdfBtn: $('batchPdfBtn'), webglFallback: $('webglFallback'), webglFallbackDetail: $('webglFallbackDetail'), webglOpenDataManageBtn: $('webglOpenDataManageBtn'), webglReloadBtn: $('webglReloadBtn'),
       title: $('summaryTitle'), count: $('summaryCount'), countLabel: $('summaryCountLabel'), foldMeta: $('summaryFoldMeta'), foldLabel:$('summaryFoldLabel'), foldCount: $('summaryFoldCount'), size: $('summarySize'), canvas: $('viewport'),
+      palletMetricBoard: $('palletMetricBoard'), palletMetricFullRate: $('palletMetricFullRate'), palletMetricSurfaceRate: $('palletMetricSurfaceRate'), palletMetricLayers: $('palletMetricLayers'), palletMetricItemsPerLayer: $('palletMetricItemsPerLayer'), palletMetricTotalCount: $('palletMetricTotalCount'), palletMetricTotalHeight: $('palletMetricTotalHeight'), palletMetricRemaining: $('palletMetricRemaining'),
       midpackFields: $('midpackArrangementFields'), midpackPresetFields: $('midpackPresetFields'), midpackPresetActions: $('midpackPresetActions'),
       orientationField: $('orientationField'), softdrawVariantField: $('softdrawVariantField'), rollCoreField: $('rollCoreField'), hangingSideDirectionField: $('hangingSideDirectionField'), hangingSideDirection: $('hangingSideDirection'), workflowControl: $('workflowControl'), workflowPath: $('workflowPath'),
       productContextSummary: $('productContextSummary'), midpackSourceSummary: $('midpackSourceSummary'),
@@ -704,19 +1032,21 @@
       caseDividerField: $('caseDividerField'), caseDividerMode: $('caseDividerMode'), caseDividerNote: $('caseDividerNote'),
       outerPresetStatus: $('outerPresetStatus'), outerProductToggleInput: $('outerProductToggleInput'), outerLabelToggleInput: $('outerLabelToggleInput'),
       outerProductToggleRow: $('outerProductToggleRow'), outerLabelToggleRow: $('outerLabelToggleRow'), outerProductToggleText: $('outerProductToggleText'),
+      outerHighlightBtn: $('outerHighlightBtn'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
       viewSettingsDialog: $('viewSettingsDialog'), viewSettingsBtn: $('viewSettingsBtn'), viewSettingsCloseBtn: $('viewSettingsCloseBtn'), caseMouthBtn: $('caseMouthBtn'), caseXrayBtn: $('caseXrayBtn'), caseNameBtn: $('caseNameBtn'),
       dataManageDialog: $('dataManageDialog'), dataManageBtn: $('dataManageBtn'), dataManageCloseBtn: $('dataManageCloseBtn'),
       batchPdfDialog: $('batchPdfDialog'), batchPdfSummary: $('batchPdfSummary'), batchApplyScopeBtn: $('batchApplyScopeBtn'), batchPreviewBtn: $('batchPreviewBtn'), batchDownloadBtn: $('batchDownloadBtn'), batchPdfCloseBtn: $('batchPdfCloseBtn'), batchEntryList: $('batchEntryList'), batchPdfPreview: $('batchPdfPreview'), batchPdfPreviewStatus: $('batchPdfPreviewStatus'),
-      batchStageProduct: $('batchStageProduct'), batchStageMidpack: $('batchStageMidpack'), batchStageBigpack: $('batchStageBigpack'), batchStageCase: $('batchStageCase'),
+      batchStageProduct: $('batchStageProduct'), batchStageMidpack: $('batchStageMidpack'), batchStageBigpack: $('batchStageBigpack'), batchStageCase: $('batchStageCase'), batchStagePallet: $('batchStagePallet'),
       batchTypeHandkerchief: $('batchTypeHandkerchief'), batchTypeSoftdraw: $('batchTypeSoftdraw'), batchTypeRoll: $('batchTypeRoll'),
       productSizeField: $('productSizeField'), productSizeMode: $('productSizeMode'),
       productBoxSizeFields: $('productBoxSizeFields'), productRollSizeFields: $('productRollSizeFields'),
       productLengthMm: $('productLengthMm'), productWidthMm: $('productWidthMm'), productHeightMm: $('productHeightMm'),
       productDiameterMm: $('productDiameterMm'), productAxialWidthMm: $('productAxialWidthMm'), productCoreDiameterMm: $('productCoreDiameterMm'), productFlattenRatePct: $('productFlattenRatePct'), rollFlattenField: $('rollFlattenField'), rollFlattenMeta: $('rollFlattenMeta'),
-      productSizeActions: $('productSizeActions'), resetProductSizeBtn: $('resetProductSizeBtn'), saveProductSizeBtn: $('saveProductSizeBtn'), productSizeStatus: $('productSizeStatus')
+      productSizeActions: $('productSizeActions'), resetProductSizeBtn: $('resetProductSizeBtn'), saveProductSizeBtn: $('saveProductSizeBtn'), productSizeStatus: $('productSizeStatus'),
+      palletSourceSummary: $('palletSourceSummary'), palletPackageType: $('palletPackageType'), palletSoftpackOptions: $('palletSoftpackOptions'), palletCornerProtectors: $('palletCornerProtectors'), palletCornerLossLengthMm: $('palletCornerLossLengthMm'), palletCornerLossWidthMm: $('palletCornerLossWidthMm'), palletAllowTopSideLay: $('palletAllowTopSideLay'), palletShowFaceLabels: $('palletShowFaceLabels'), palletUnitLengthMm: $('palletUnitLengthMm'), palletUnitWidthMm: $('palletUnitWidthMm'), palletUnitHeightMm: $('palletUnitHeightMm'), palletLoadHeightMm: $('palletLoadHeightMm'), palletLayerStrategy: $('palletLayerStrategy'), palletBasePattern: $('palletBasePattern'), palletFaceConstraintEnabled: $('palletFaceConstraintEnabled'), palletDefinitionCard: $('palletDefinitionCard'), palletCandidates: $('palletCandidates'), palletPresetName: $('palletPresetName'), palletStatus: $('palletStatus'), palletCountTag: $('palletCountTag'), savePalletPresetBtn: $('savePalletPresetBtn'), newPalletPresetBtn: $('newPalletPresetBtn')
     };
 
     Object.entries(catalog).forEach(([key, value]) => ui.category.add(new Option(value.name, key)));
@@ -727,11 +1057,46 @@
     vindaLogoTexture.colorSpace = THREE.SRGBColorSpace;
     vindaLogoTexture.userData.shared = true;
 
-    const renderer = new THREE.WebGLRenderer({canvas: ui.canvas, antialias: true, alpha: true, preserveDrawingBuffer: false});
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    let webglAvailable = true;
+    let webglFailure = null;
+    const forceWebglFallback = new URLSearchParams(location.search).has('forceWebglFallback');
+
+    // WebGL 不可用时仍让业务表单、托盘计算和 JSON 预设管理继续工作。
+    // 这个轻量 facade 只覆盖本页实际使用的 WebGLRenderer 接口，避免 Three.js
+    // 初始化异常使整个模块脚本中止并留下白屏。
+    function makeRendererFallback(canvas) {
+      return {
+        domElement: canvas,
+        outputColorSpace: THREE.SRGBColorSpace,
+        shadowMap: { enabled: false, type: null },
+        capabilities: { getMaxAnisotropy: () => 1, maxTextureSize: 0 },
+        info: {
+          render: { calls: 0, triangles: 0, lines: 0, points: 0 },
+          memory: { geometries: 0, textures: 0 },
+        },
+        setPixelRatio() {},
+        setSize(width, height) {
+          canvas.width = Math.max(1, Math.round(Number(width) || 1));
+          canvas.height = Math.max(1, Math.round(Number(height) || 1));
+        },
+        render() {},
+      };
+    }
+
+    let renderer;
+    try {
+      if (forceWebglFallback) throw new Error('调试模式：强制启用 WebGL 降级界面。');
+      renderer = new THREE.WebGLRenderer({canvas: ui.canvas, antialias: true, alpha: true, preserveDrawingBuffer: false});
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    } catch (error) {
+      webglAvailable = false;
+      webglFailure = error;
+      renderer = makeRendererFallback(ui.canvas);
+      console.error('WebGL 初始化失败，已切换为参数/预设降级模式。', error);
+    }
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0xe7eef5, 14, 34);
@@ -773,22 +1138,66 @@
     let packagingLevel = 'midpack';
     let showOuterProducts = true;
     let showOuterLabels = false;
+    // 突出单元：仅视图辅助状态，不写入方案快照，也不改变外包装业务尺寸。
+    let showOuterHighlight = false;
+    let outerHighlightTarget = null; // {x,z,y} 单元索引；null = 使用默认可见角单元。
     let caseMouthOpen = false;
     let caseXrayEnabled = true;
     let showCartonName = true;
     let cartonNameLabel = null;
     let targetCamera = null;
     let cameraInteracting = false;
-    controls.addEventListener('start',()=>{ cameraInteracting=true; targetCamera=null; });
-    controls.addEventListener('end',()=>{ cameraInteracting=false; });
+    // 静态画面不需要持续占用 GPU。只有相机过渡、自动旋转或用户操作时才连续渲染；
+    // 其余变化（参数、窗口、OrbitControls change）合并为下一帧的一次渲染。
+    let renderRequested = false;
+    let renderLoopFrame = 0;
+    let renderingActiveMotion = false;
+    function requestRender() {
+      if (!webglAvailable || renderLoopFrame || renderingActiveMotion || renderRequested) return;
+      renderRequested = true;
+      requestAnimationFrame(() => {
+        renderRequested = false;
+        renderer.render(scene, camera);
+      });
+    }
+    function hasActiveRenderMotion() {
+      return !document.hidden && (Boolean(targetCamera) || (ui.autoRotate.checked && !cameraInteracting));
+    }
+    function startRenderLoop() {
+      if (!webglAvailable || document.hidden || renderLoopFrame) return;
+      renderLoopFrame = requestAnimationFrame(animate);
+    }
+    controls.addEventListener('change', requestRender);
+    controls.addEventListener('start',()=>{ cameraInteracting=true; targetCamera=null; requestRender(); });
+    controls.addEventListener('end',()=>{
+      cameraInteracting=false;
+      requestRender();
+      if (ui.autoRotate.checked) startRenderLoop();
+    });
+    ui.autoRotate.addEventListener('change', () => {
+      if (ui.autoRotate.checked && !cameraInteracting) startRenderLoop();
+      else requestRender();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && (targetCamera || ui.autoRotate.checked)) startRenderLoop();
+      else if (!document.hidden) requestRender();
+    });
     let presetDirty = false;
     const outerDrafts = {bigpack:outerDefaults('bigpack'),case:outerDefaults('case')};
     const outerSelections = {bigpack:'temporary',case:'temporary'};
     // 中包侧草稿：切换到大包/装箱再返回时，还原产品定义与排列参数，避免被外包装方案覆盖污染。
     let midpackDraft = null;
+    // 叠板独立工作区：单件箱规、托盘约束、placement list 均与上游外包装解耦。
+    let palletDraft = palletDefaults('case');
+    let palletSelection = 'temporary';
+    let palletPlan = null;
 
     function isMidpack() {
       return packagingLevel === 'midpack';
+    }
+
+    function isPallet() {
+      return packagingLevel === 'pallet';
     }
 
     function currentOuterPreset() {
@@ -1101,6 +1510,7 @@
     function activeWorkflowStage() {
       if (packagingLevel === 'bigpack') return 'bigpack';
       if (packagingLevel === 'case') return 'case';
+      if (packagingLevel === 'pallet') return 'pallet';
       return mode === 'single' ? 'product' : 'midpack';
     }
 
@@ -1149,6 +1559,9 @@
       } else if (active === 'midpack') {
         const presetName = ui.presetName.value.trim() || selectedPreset()?.name || '中包';
         setPath([{text:`${productName}单粒 → `},{text:presetName,strong:true}]);
+      } else if (active === 'pallet') {
+        const packageName = ui.palletPackageType.value === 'softpack' ? '软包' : '纸箱';
+        setPath([{text:`${packageName} → `},{text:'叠板工段',strong:true}]);
       } else {
         const target = outerLevelName(packagingLevel);
         const presetName = ui.presetName.value.trim() || selectedPreset()?.name || '中包';
@@ -1175,13 +1588,14 @@
 
     function syncStagePanels() {
       const active = activeWorkflowStage();
+      if (ui.palletMetricBoard) ui.palletMetricBoard.hidden = active !== 'pallet';
       document.querySelectorAll('[id^="stagePanel-"]').forEach(panel => {
         panel.hidden = panel.id !== `stagePanel-${active}`;
       });
       if (active === 'bigpack' || active === 'case') {
         mountOuterEditor(active);
         mountSlot(ui.definitionCard, 'outer', 'definition-slot');
-      } else {
+      } else if (active !== 'pallet') {
         mountSlot(ui.orientationField, active, 'orientation-slot');
         mountSlot(ui.definitionCard, active, 'definition-slot');
       }
@@ -1190,6 +1604,10 @@
       syncStageActionBar();
       syncProductContextSummary();
       syncMidpackSourceSummary();
+      if (active === 'pallet') {
+        syncPalletSourceUi();
+        populatePalletPresets(palletSelection, palletDraft);
+      }
     }
 
     function updateLevelButtons() {
@@ -1260,7 +1678,7 @@
     }
 
     function syncOuterSourceSummary() {
-      if (isMidpack() || !ui.outerSourceSummary) return;
+      if (isMidpack() || isPallet() || !ui.outerSourceSummary) return;
       const target = outerLevelName(packagingLevel);
       const sourceName=ui.category.value==='roll'&&currentRollBundleSpec().count>1?'小包':'单粒';
       const midpackOption = ui.outerUnit.options[0];
@@ -1290,6 +1708,8 @@
       const active = activeWorkflowStage();
       if (active === 'bigpack' || active === 'case') {
         rememberOuterDraft();
+      } else if (active === 'pallet') {
+        rememberPalletDraft();
       } else {
         midpackDraft = {
           preset: ui.preset.value,
@@ -1313,6 +1733,9 @@
       if (nextStage === 'bigpack' || nextStage === 'case') {
         mode = 'array';
         packagingLevel = nextStage;
+      } else if (nextStage === 'pallet') {
+        mode = 'array';
+        packagingLevel = 'pallet';
       } else if (nextStage === 'product') {
         mode = 'single';
         packagingLevel = 'midpack';
@@ -1325,6 +1748,9 @@
     function restoreStageDraft(nextStage) {
       if (nextStage === 'bigpack' || nextStage === 'case') {
         populateOuterPresets(outerSelections[nextStage] || 'temporary', outerDrafts[nextStage]);
+        syncProductRuleUi(); syncBagControls();
+      } else if (nextStage === 'pallet') {
+        populatePalletPresets(palletSelection || 'temporary', palletDraft);
         syncProductRuleUi(); syncBagControls();
       } else {
         if (midpackDraft) {
@@ -1347,7 +1773,7 @@
     }
 
     function switchWorkflowStage(nextStage, animate = true) {
-      if (!['product','midpack','bigpack','case'].includes(nextStage)) return;
+      if (!WORKFLOW_STAGES.includes(nextStage)) return;
       const current = activeWorkflowStage();
       if (current === nextStage) {
         updateLevelButtons();
@@ -1448,6 +1874,10 @@
     function syncProductRuleUi() {
       const type = ui.category.value;
       const data = catalog[type];
+      if (isPallet()) {
+        syncPalletSourceUi();
+        return;
+      }
       const labels = isMidpack() ? data.axisLabels : ['外包装 X 行数','外包装 Z 列数','外包装 Y 层数'];
       ui.rowsLabel.textContent = labels[0]; ui.colsLabel.textContent = labels[1]; ui.layersLabel.textContent = labels[2];
       ui.xLegend.textContent = labels[0]; ui.zLegend.textContent = labels[1]; ui.yLegend.textContent = labels[2];
@@ -1463,8 +1893,18 @@
 
     function syncBagControls() {
       const noHandle = ui.category.value === 'handkerchief';
-      const outer = !isMidpack();
+      const outer = !isMidpack() && !isPallet();
       const singleProduct = isMidpack() && mode === 'single';
+      if (isPallet()) {
+        $('handleControls').hidden = true;
+        $('bagDisplayText').textContent = '显示托盘与叠放单元';
+        $('handleLegend').hidden = true; $('bottomLegend').hidden = true;
+        document.querySelectorAll('[data-direction-view],[data-outer-direction-view]').forEach(button => { button.hidden = true; });
+        ui.outerProductToggleRow.hidden = true; ui.outerLabelToggleRow.hidden = true;
+        ui.outerHighlightBtn.hidden = true;
+        ui.caseMouthBtn.hidden = true; ui.caseXrayBtn.hidden = true; ui.caseNameBtn.hidden = true;
+        return;
+      }
       // 提手端是业务数据，位于中包工段面板内；面板切换已处理 outer/single 显隐，这里只按「无提手」隐藏。
       $('handleControls').hidden = noHandle;
       $('bagDisplayText').textContent = outer ? (packagingLevel === 'bigpack' ? '显示大包袋' : '显示纸箱') : (noHandle ? '显示无提手中包袋与普通端封' : '显示中包袋、手挽耳和袋底端');
@@ -1478,6 +1918,10 @@
       ui.outerProductToggleText.textContent = showOuterProducts ? '隐藏小粒' : '显示小粒';
       ui.outerLabelToggleRow.hidden = !outer;
       ui.outerLabelToggleInput.checked = showOuterLabels;
+      // 突出单元按钮只在外包装排列视图显示；单粒视图与中包/叠板无此概念。
+      const showHighlightToggle = outer && mode === 'array';
+      ui.outerHighlightBtn.hidden = !showHighlightToggle;
+      ui.outerHighlightBtn.setAttribute('aria-pressed',String(showOuterHighlight));
       const showCaseControls = packagingLevel === 'case' && ui.envelope.checked && mode === 'array';
       ui.caseMouthBtn.hidden = !showCaseControls;
       ui.caseMouthBtn.textContent = caseMouthOpen ? '关闭箱口' : '打开箱口';
@@ -2870,7 +3314,10 @@
         if (o.geometry) geometries.add(o.geometry);
         if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => materials.add(m)); }
       });
+      const palletDebug = palletPlan?.debug || {};
+      const palletCache = getPalletLayoutCacheStats();
       return {
+        webglAvailable,
         objects, meshes, lineSegments, points,
         geometries: geometries.size,
         materials: materials.size,
@@ -2882,6 +3329,14 @@
         gpuGeometries: renderer.info.memory.geometries,
         gpuTextures: renderer.info.memory.textures,
         lastRebuildMs,
+        palletAlgorithmVersion: PALLET_ALGORITHM_VERSION,
+        palletSolutionId: palletPlan?.solutionId || null,
+        palletOptimizeMs: Number(palletDebug.elapsedMs || 0),
+        palletCandidates: Number(palletDebug.candidateCount || 0),
+        palletPruned: Number(palletDebug.prunedCount || 0),
+        palletCacheHit: Boolean(palletDebug.cacheHit),
+        palletCacheEntries: palletCache.size,
+        palletCacheCapacity: PALLET_LAYOUT_CACHE_MAX_ENTRIES,
       };
     }
     window.__midpackStats = () => { const s = sceneStats(); console.table(s); return s; };
@@ -2968,6 +3423,203 @@
       edges.geometry.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
     }
 
+    // 叠板场景：托盘与 placement list 独立建模，不复用大包/装箱 rows/cols/layers 容器逻辑。
+    function rebuildPallet() {
+      const plan = palletPlan || optimizePalletLayout(palletOptionsFromUi());
+      palletPlan = plan;
+      updatePalletMetricBoard(plan);
+      const scale = SCENE_UNITS_PER_MM;
+      const group = new THREE.Group();
+      const palletLength = PALLET_SIZE_MM.length * scale;
+      const palletWidth = PALLET_SIZE_MM.width * scale;
+      const palletHeight = PALLET_SIZE_MM.height * scale;
+      const packageType = plan.options?.packageType === 'softpack' ? 'softpack' : 'case';
+
+      // 蓝色 1200×1000×160 mm 塑料托盘：上面板、九脚、底部横梁和四向叉车孔。
+      // 结构口径保持固定，只把内部几何拆开表达真实托盘的镂空和进叉空间。
+      const palletTopMat = new THREE.MeshStandardMaterial({ color: 0x176fba, roughness: .67, metalness: .02 });
+      const palletEdgeMat = new THREE.MeshStandardMaterial({ color: 0x0b4f91, roughness: .74, metalness: .02 });
+      const palletFootMat = new THREE.MeshStandardMaterial({ color: 0x0e5ca5, roughness: .74, metalness: .02 });
+      const palletRibMat = new THREE.MeshStandardMaterial({ color: 0x2c8fd0, roughness: .63, metalness: .02 });
+      const deckThickness = .18;
+      const deckY = palletHeight - deckThickness / 2;
+      const topDeck = new THREE.Mesh(new RoundedBoxGeometry(palletLength, deckThickness, palletWidth, 3, .06), palletTopMat);
+      topDeck.position.y = deckY; topDeck.castShadow = true; topDeck.receiveShadow = true; group.add(topDeck);
+      const topEdge = new THREE.LineSegments(new THREE.EdgesGeometry(topDeck.geometry, 20), new THREE.LineBasicMaterial({ color: 0x063963, transparent: true, opacity: .62 }));
+      topEdge.position.copy(topDeck.position); topEdge.renderOrder = 10; group.add(topEdge);
+
+      // 顶面防滑筋：沿长向和短向形成塑料托盘常见的网格/加强筋视觉。
+      for (const z of [-palletWidth * .37, -palletWidth * .185, 0, palletWidth * .185, palletWidth * .37]) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(palletLength - .18, .055, .075), palletRibMat);
+        rib.position.set(0, palletHeight + .012, z); rib.castShadow = true; group.add(rib);
+      }
+      for (const x of [-palletLength * .38, -palletLength * .19, 0, palletLength * .19, palletLength * .38]) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(.075, .055, palletWidth - .18), palletRibMat);
+        rib.position.set(x, palletHeight + .013, 0); rib.castShadow = true; group.add(rib);
+      }
+
+      // 九脚支撑，脚墩之间留出四向进叉的连续空间。
+      const footSize = .82;
+      const footHeight = palletHeight - deckThickness - .16;
+      const footX = [-palletLength / 2 + .56, 0, palletLength / 2 - .56];
+      const footZ = [-palletWidth / 2 + .52, 0, palletWidth / 2 - .52];
+      for (const x of footX) for (const z of footZ) {
+        const foot = new THREE.Mesh(new RoundedBoxGeometry(footSize, footHeight, footSize, 3, .07), palletFootMat);
+        foot.position.set(x, .16 + footHeight / 2, z); foot.castShadow = true; foot.receiveShadow = true; group.add(foot);
+      }
+
+      // 底部三条川字横梁及端部加强梁。
+      for (const z of [-palletWidth * .36, 0, palletWidth * .36]) {
+        const beam = new THREE.Mesh(new RoundedBoxGeometry(palletLength - .22, .17, .28, 2, .04), palletEdgeMat);
+        beam.position.set(0, .085, z); beam.castShadow = true; group.add(beam);
+      }
+      for (const x of [-palletLength * .43, palletLength * .43]) {
+        const beam = new THREE.Mesh(new RoundedBoxGeometry(.24, .17, palletWidth - .25, 2, .04), palletEdgeMat);
+        beam.position.set(x, .085, 0); beam.castShadow = true; group.add(beam);
+      }
+
+      if (plan.ok) {
+        // 叠板使用独立规格；这里只按包装形态切换外观：软包为柔性 PE 袋，纸箱为瓦楞箱。
+        // 不调用上游排列尺寸，避免内部小粒/中包尺寸影响叠板口径。
+        const isSoftpack = packageType === 'softpack';
+        const unitCornerRadius = isSoftpack ? .105 : .045;
+        const matA = isSoftpack
+          ? new THREE.MeshPhysicalMaterial({ color: 0x63bfd7, transparent: true, opacity: .78, roughness: .52, clearcoat: .18, side: THREE.DoubleSide })
+          : new THREE.MeshStandardMaterial({ color: 0xd0a26e, roughness: .82, metalness: 0 });
+        const matB = isSoftpack
+          ? new THREE.MeshPhysicalMaterial({ color: 0x46a9c5, transparent: true, opacity: .78, roughness: .52, clearcoat: .18, side: THREE.DoubleSide })
+          : new THREE.MeshStandardMaterial({ color: 0xbc8953, roughness: .82, metalness: 0 });
+        const edgeMatA = new THREE.LineBasicMaterial({ color: isSoftpack ? 0x177eaa : 0x8c5f31, transparent: true, opacity: .66 });
+        const edgeMatB = new THREE.LineBasicMaterial({ color: isSoftpack ? 0x126a8d : 0x70461f, transparent: true, opacity: .66 });
+        // 叠板单元只使用独立箱规建模，但保留软包的包膜/边封结构；
+        // 纸箱仅保留箱体外轮廓，顶面保持完整平面以便显示 H 面标识。
+        // 这些细节只用于视觉，不改变 placement 的长宽高口径。
+        const peFilmMat = new THREE.MeshPhysicalMaterial({ color: 0x9be0eb, transparent: true, opacity: .16, roughness: .42, clearcoat: .14, side: THREE.DoubleSide, depthWrite: false });
+        const peSealMat = new THREE.MeshPhysicalMaterial({ color: 0x2d9fbd, transparent: true, opacity: .72, roughness: .62, clearcoat: .05, side: THREE.DoubleSide });
+        const cartonSeamMat = new THREE.LineBasicMaterial({ color: 0x70461f, transparent: true, opacity: .72 });
+        const addUnitAppearance = (mesh, item, length, width, height, useBigpackDetails) => {
+          if (useBigpackDetails) {
+            // 膜层略收进箱规，避免透明面越过相邻单元；视觉上仍保留柔性袋的包膜感。
+            const film = new THREE.Mesh(new THREE.BoxGeometry(length * .992, height * .992, width * .992), peFilmMat);
+            film.renderOrder = 4; film.userData.role = 'pallet-bigpack-pe-film'; mesh.add(film);
+            // 封好后的边封是贯穿包装中线、与袋面垂直的窄长鳍片。
+            const sealHeight = Math.min(height * .16, .18);
+            const finSeal = new THREE.Mesh(new THREE.BoxGeometry(length * .92, sealHeight, .018), peSealMat);
+            finSeal.position.set(0, 0, width / 2 - .012);
+            finSeal.renderOrder = 8; finSeal.userData.role = 'pallet-bigpack-center-fin-seal'; mesh.add(finSeal);
+            const seam = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(length * .92, sealHeight, .02), 1), cartonSeamMat);
+            seam.position.copy(finSeal.position); seam.renderOrder = 9; seam.userData.role = 'pallet-bigpack-seal-edge'; mesh.add(seam);
+          } else {
+            // 叠板纸箱不显示顶部胶带/中缝，保持顶面为完整箱面。
+          }
+        };
+        const markerTextures = new Map();
+        const markerGeometry = new THREE.PlaneGeometry(1, 1);
+        const markerMaterial = letter => {
+          if (!markerTextures.has(letter)) {
+            const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'rgba(18,72,128,.82)'; ctx.beginPath(); ctx.roundRect(14,14,100,100,20); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 5; ctx.stroke();
+            ctx.fillStyle = '#ffffff'; ctx.font = '800 76px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(letter,64,68);
+            const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+            markerTextures.set(letter, new THREE.MeshBasicMaterial({ map:texture, transparent:true, depthTest:true, depthWrite:false, side:THREE.DoubleSide }));
+          }
+          return markerTextures.get(letter);
+        };
+        // 面标识直接读取优化器与尺寸置换同时产生的轴来源，不再在渲染层猜 A/B/侧倒。
+        // 兼容极少数旧的内存态 plan：缺字段时也调用同一个核心姿态函数补齐。
+        const faceAxesFor = item => item.faceByWorldAxis
+          || orientedSize(plan.options.unitSizeMm, item.orientation, item.posture).faceByWorldAxis;
+        const addFaceMarker = (mesh, letter, face, length, width, height) => {
+          // 当前仅展示 L/W；被映射为 H 的面保持留白。
+          if (letter !== 'L' && letter !== 'W') return;
+          const marker = new THREE.Mesh(markerGeometry, markerMaterial(letter));
+          const size = Math.max(.52, Math.min(1.25, Math.min(length, width, height) * .42));
+          marker.scale.set(size, size, 1);
+          if (face === 'top') { marker.position.set(0, height / 2 + .012, 0); marker.rotation.x = -Math.PI / 2; }
+          else if (face === 'front') marker.position.set(0, 0, width / 2 + .012);
+          else if (face === 'back') { marker.position.set(0, 0, -width / 2 - .012); marker.rotation.y = Math.PI; }
+          else if (face === 'right') { marker.position.set(length / 2 + .012, 0, 0); marker.rotation.y = Math.PI / 2; }
+          else { marker.position.set(-length / 2 - .012, 0, 0); marker.rotation.y = -Math.PI / 2; }
+          marker.renderOrder = 14; marker.userData.role = `pallet-face-${letter.toLowerCase()}`; mesh.add(marker);
+        };
+        const geometryCache = new Map();
+        const edgeCache = new Map();
+        const showFaceMarkers = ui.palletShowFaceLabels.value !== 'off' && plan.placements.length <= 240;
+        for (const item of plan.placements) {
+          const key = `${item.lengthMm}x${item.widthMm}x${item.heightMm}`;
+          if (!geometryCache.has(key)) {
+            const geo = new RoundedBoxGeometry(item.lengthMm * scale, item.heightMm * scale, item.widthMm * scale, isSoftpack ? 5 : 2, Math.min(unitCornerRadius, Math.min(item.lengthMm, item.widthMm, item.heightMm) * scale * .24));
+            geometryCache.set(key, geo);
+            edgeCache.set(key, new THREE.EdgesGeometry(geo, 20));
+          }
+          const mesh = new THREE.Mesh(geometryCache.get(key), item.orientation === 'B' ? matB : matA);
+          mesh.position.set(item.xMm * scale, item.yMm * scale, item.zMm * scale);
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          mesh.userData = { role: 'pallet-unit', orientation: item.orientation, layer: item.layer, placement: item };
+          group.add(mesh);
+          if (plan.placements.length <= 300) {
+            const length = item.lengthMm * scale, width = item.widthMm * scale, height = item.heightMm * scale;
+            addUnitAppearance(mesh, item, length, width, height, isSoftpack);
+            if (showFaceMarkers) {
+              const faceAxes = faceAxesFor(item);
+              const exposed = palletExposedFacesFor(plan.placements, item);
+              if (exposed.top) addFaceMarker(mesh, faceAxes.y, 'top', length, width, height);
+              // “指定托盘长边展示面”只约束指定边的排样，并决定正面观察方向；
+              // 台阶、凹口以及后排等真实外露面，均按逐件邻接关系显示 L/W。
+              if (exposed.front) addFaceMarker(mesh, faceAxes.z, 'front', length, width, height);
+              if (exposed.back) addFaceMarker(mesh, faceAxes.z, 'back', length, width, height);
+              if (exposed.right) addFaceMarker(mesh, faceAxes.x, 'right', length, width, height);
+              if (exposed.left) addFaceMarker(mesh, faceAxes.x, 'left', length, width, height);
+            }
+          }
+          // 大数量时仅保留表面色区分，避免每个单元额外增加线框 draw call。
+          if (plan.placements.length <= 500) {
+            const edge = new THREE.LineSegments(edgeCache.get(key), item.orientation === 'B' ? edgeMatB : edgeMatA);
+            edge.position.copy(mesh.position); edge.userData = { role: 'pallet-unit-edge', orientation: item.orientation, layer: item.layer };
+            group.add(edge);
+          }
+        }
+        if (isSoftpack && plan.options.softpackOptions?.cornerProtectorsEnabled) {
+          const usable = plan.options.usablePallet;
+          const cargoHeight = Math.max(0, plan.totalHeightMm - PALLET_SIZE_MM.height) * scale;
+          const guardMat = new THREE.MeshStandardMaterial({ color:0x7c684c, roughness:.93, metalness:0 });
+          const wing = .28, thickness = .055;
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+            const x = sx * usable.lengthMm * scale / 2;
+            const z = sz * usable.widthMm * scale / 2;
+            const verticalCenter = palletHeight + cargoHeight / 2;
+            const wingX = new THREE.Mesh(new THREE.BoxGeometry(wing, cargoHeight, thickness), guardMat);
+            wingX.position.set(x - sx * wing / 2, verticalCenter, z); wingX.userData.role = 'pallet-corner-protector'; group.add(wingX);
+            const wingZ = new THREE.Mesh(new THREE.BoxGeometry(thickness, cargoHeight, wing), guardMat);
+            wingZ.position.set(x, verticalCenter, z - sz * wing / 2); wingZ.userData.role = 'pallet-corner-protector'; group.add(wingZ);
+          }
+        }
+        if (showOuterLabels) {
+          const labelA = makeLabelSprite('A：长边顺托盘长向', '#2e6da4');
+          labelA.position.set(-palletLength * .25, Math.max(plan.totalHeightMm * scale + .45, 2.2), 0);
+          labelA.scale.set(1.1, .28, 1); group.add(labelA);
+          const labelB = makeLabelSprite('B：旋转90°', '#2c8e62');
+          labelB.position.set(palletLength * .25, Math.max(plan.totalHeightMm * scale + .45, 2.2), 0);
+          labelB.scale.set(.8, .28, 1); group.add(labelB);
+        }
+      }
+      productGroup.add(group);
+      productGroup.scale.set(1, 1, 1);
+      const totalHeight = plan.ok ? plan.totalHeightMm : PALLET_SIZE_MM.height;
+      const viewTotal = [palletLength, Math.max(totalHeight * scale, palletHeight), palletWidth];
+      floor.position.y = -.04; grid.position.y = -.03;
+      ui.title.textContent = `叠板 · ${ui.palletPresetName.value.trim() || '叠板临时方案'}`;
+      ui.count.textContent = plan.ok ? plan.totalCount : 0;
+      ui.countLabel.textContent = '托盘内单元';
+      ui.foldMeta.hidden = true;
+      ui.countTag.textContent = plan.ok ? `${plan.totalCount} 件` : '无可行方案';
+      ui.size.textContent = `${PALLET_SIZE_MM.length} × ${PALLET_SIZE_MM.width} × ${totalHeight.toFixed(0)} mm`;
+      fitCamera(viewTotal, { pallet: true, resetDirection: true });
+      requestRender();
+    }
+
     // 单粒有芯卫卷大数量阵列：body/film/core/hole 用 InstancedMesh，轮廓线合并为单个 LineSegments。
     // dimensionOverride 用于自定义小粒尺寸的等比缩放（局部 Y=轴向、X/Z=直径）。
     function buildInstancedRollArray(orientation, r, c, l, step, center, dimensionOverride = null) {
@@ -3001,6 +3653,48 @@
       rollInstanced = { r, c, l, step, center, meshes, edges, baseEdgesPos, vertsPerRoll, rot, scale: sizeScale };
       applyRollInstanceLayout();
       return group;
+    }
+
+    // 大包/装箱视图的“突出单个单元”：半透明橙色外壳 + 描边。
+    // 只叠加在现有单元之上，不修改单元材质（所有单元共享材质），也不进入方案快照。
+    // 目标单元默认取顶层靠观察侧的角单元；开启后可点击箱内任意单元切换突出位置。
+    function applyOuterUnitHighlight({ r, c, l, d, step, targets }) {
+      if (!showOuterHighlight || mode !== 'array') return;
+      const t = outerHighlightTarget;
+      const valid = t && [t.x,t.z,t.y].every(v => Number.isInteger(v) && v >= 0)
+        && t.x < r && t.z < c && t.y < l ? t : { x:r-1, z:c-1, y:l-1 };
+      outerHighlightTarget = valid;
+      // 摆放循环按 y→z→x 嵌套 push；直接取该单元的最终落点，
+      // 天然包含十字挡板让位等偏移，避免高亮框与单元错位。
+      const item = targets[(valid.y*c + valid.z)*r + valid.x];
+      if (!item) return;
+      const pad = Math.max(0.02, Math.max(...d)*0.03);
+      const shellGeometry = new THREE.BoxGeometry(d[0]+pad, d[1]+pad, d[2]+pad);
+      const shell = new THREE.Mesh(shellGeometry, new THREE.MeshBasicMaterial({ color:0x175cd3, transparent:true, opacity:.26, depthWrite:false }));
+      shell.renderOrder = 15;
+      const outline = edgeLines(shellGeometry, 0x0b4ab6, .95);
+      const group = new THREE.Group(); group.add(shell); group.add(outline);
+      group.position.copy(item.userData.target);
+      productGroup.add(group);
+    }
+
+    // 突出开启时，点击（非拖拽）箱内单元即切换突出目标。射线只与产品组求交，
+    // 不受纸箱/袋体遮挡影响，闭箱状态下也能选中内部单元。
+    const unitPickRaycaster = new THREE.Raycaster();
+    const unitPickPointer = new THREE.Vector2();
+    let unitPickDown = null;
+
+    function pickOuterUnitAt(clientX, clientY) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      unitPickPointer.set(((clientX-rect.left)/rect.width)*2-1, -((clientY-rect.top)/rect.height)*2+1);
+      unitPickRaycaster.setFromCamera(unitPickPointer, camera);
+      const hits = unitPickRaycaster.intersectObjects(productGroup.children, true);
+      for (const hit of hits) {
+        let node = hit.object;
+        while (node && node.parent !== productGroup) node = node.parent;
+        if (node?.userData?.placement) return { ...node.userData.placement };
+      }
+      return null;
     }
 
     function rebuildOuter(animate = false) {
@@ -3049,7 +3743,7 @@
           z*step[2]-center[2] + (dividerActive ? dividerUnitShift(z,c,dividerThickness) : 0)
         );
         item.position.copy(shouldAnimate ? new THREE.Vector3(0,0,0) : target);
-        item.userData.target=target; productGroup.add(item); targets.push(item);
+        item.userData.target=target; item.userData.placement={x,z,y}; productGroup.add(item); targets.push(item);
       }
       const total=[
         r*d[0]+Math.max(0,r-1)*spacing+(dividerActive?dividerThickness:0),
@@ -3076,13 +3770,15 @@
       ui.count.textContent=unitCount; ui.countLabel.textContent='外包装内单元'; ui.foldLabel.textContent=ui.category.value==='roll'?'折合卷数':'折合单粒'; ui.foldCount.textContent=foldCount; ui.foldMeta.hidden=false;
       ui.countTag.textContent=`${unitCount} 单元`;
       ui.size.textContent=`${displayTotal[0].toFixed(1)} × ${displayTotal[2].toFixed(1)} × ${displayTotal[1].toFixed(1)}`;
+      applyOuterUnitHighlight({ r, c, l, d, step, targets });
       fitCamera(cameraTotal);
       if (shouldAnimate) {
         const token = ++entranceAnimToken;
         const start=performance.now();
-        const tick=now=>{ if (token !== entranceAnimToken) return; const t=Math.min(1,(now-start)/520),e=1-Math.pow(1-t,3); targets.forEach((item,i)=>{ const delay=Math.min(.32,i*.008),u=Math.max(0,Math.min(1,(e-delay)/(1-delay))); item.position.lerpVectors(new THREE.Vector3(0,0,0),item.userData.target,u); }); if(t<1) requestAnimationFrame(tick); };
+        const tick=now=>{ if (token !== entranceAnimToken) return; const t=Math.min(1,(now-start)/520),e=1-Math.pow(1-t,3); targets.forEach((item,i)=>{ const delay=Math.min(.32,i*.008),u=Math.max(0,Math.min(1,(e-delay)/(1-delay))); item.position.lerpVectors(new THREE.Vector3(0,0,0),item.userData.target,u); }); requestRender(); if(t<1) requestAnimationFrame(tick); };
         requestAnimationFrame(tick);
       }
+      requestRender();
     }
 
     function rebuild(animate = false) {
@@ -3093,14 +3789,23 @@
         if (key === lastMidpackArrayKey) {
           updateMidpackGapLayout();
           lastRebuildMs = performance.now() - t0;
+          requestRender();
           return;
         }
       }
       clearGroup();
+      if (isPallet()) {
+        rebuildPallet();
+        lastMidpackArrayKey = null;
+        lastRebuildMs = performance.now() - t0;
+        requestRender();
+        return;
+      }
       if (!isMidpack()) {
         rebuildOuter(animate);
         lastMidpackArrayKey = null;
         lastRebuildMs = performance.now() - t0;
+        requestRender();
         return;
       }
       const type = ui.category.value;
@@ -3160,20 +3865,36 @@
           if (token !== entranceAnimToken) return;
           const t = Math.min(1,(now-start)/520), eased = 1-Math.pow(1-t,3);
           targets.forEach((item,i) => { const delay = Math.min(.32,i*.008); const u = Math.max(0,Math.min(1,(eased-delay)/(1-delay))); item.position.lerpVectors(new THREE.Vector3(0,0,0),item.userData.target,u); });
+          requestRender();
           if(t<1) requestAnimationFrame(tick);
         }; requestAnimationFrame(tick);
       }
       lastMidpackArrayKey = (mode === 'array') ? midpackArrayKey() : null;
       lastRebuildMs = performance.now() - t0;
+      requestRender();
     }
 
-    function fitCamera(total) {
+    function fitCamera(total, options = {}) {
       const radius = Math.max(2.4, Math.hypot(...total)*.63);
-      controls.target.set(0, Math.max(0,total[1]*.08), 0);
-      controls.minDistance = radius*.65; controls.maxDistance = radius*5;
-      const dir = camera.position.clone().sub(controls.target).normalize();
-      camera.position.copy(controls.target.clone().add(dir.multiplyScalar(radius*2.25)));
-      camera.near = Math.max(.05,radius/100); camera.far = radius*30; camera.updateProjectionMatrix();
+      const palletView = Boolean(options.pallet);
+      controls.target.set(0, palletView ? total[1]*.44 : Math.max(0,total[1]*.08), 0);
+      controls.minDistance = radius*(palletView ? .42 : .65);
+      controls.maxDistance = radius*(palletView ? 11 : 5);
+      let dir = palletView && options.resetDirection
+        ? new THREE.Vector3(-.78,.58,-.78).normalize()
+        : camera.position.clone().sub(controls.target).normalize();
+      if (!Number.isFinite(dir.x) || !Number.isFinite(dir.y) || !Number.isFinite(dir.z) || dir.lengthSq() < .01) dir = new THREE.Vector3(-.68,.52,-.68).normalize();
+      // 叠板默认留出更大的上下左右安全边距，避免高堆在视口顶部/底部被裁剪。
+      const distance = radius*(palletView ? 3.20 : 2.25);
+      camera.position.copy(controls.target.clone().add(dir.multiplyScalar(distance)));
+      // 叠板高堆时关闭原有近距离雾化，避免用户拉远后货物变灰；扩大远裁剪面并保留安全近裁剪面。
+      camera.near = Math.max(.01, palletView ? radius/500 : radius/100);
+      camera.far = palletView ? Math.max(1200, radius*90) : radius*30;
+      if (scene.fog) {
+        scene.fog.near = palletView ? Math.max(26, radius*1.25) : 14;
+        scene.fog.far = palletView ? Math.max(180, radius*6.5) : 34;
+      }
+      camera.updateProjectionMatrix();
       controls.update();
     }
 
@@ -3190,8 +3911,21 @@
     }
 
     function moveCamera(view) {
-      const box = new THREE.Box3().setFromObject(productGroup); if (envelope) box.expandByObject(envelope); const size = box.getSize(new THREE.Vector3()); const dist = Math.max(4,Math.hypot(size.x,size.y,size.z)*1.45);
-      const target = controls.target.clone();
+      const box = new THREE.Box3().setFromObject(productGroup); if (envelope) box.expandByObject(envelope);
+      const size = box.getSize(new THREE.Vector3());
+      const palletView = isPallet();
+      const target = palletView ? box.getCenter(new THREE.Vector3()) : controls.target.clone();
+      const radius = Math.max(2.4, Math.hypot(size.x, size.y, size.z) * .63);
+      const dist = Math.max(4, radius * (palletView ? 3.20 : 1.45));
+      if (palletView) {
+        controls.target.copy(target);
+        controls.minDistance = radius * .42;
+        controls.maxDistance = radius * 11;
+        camera.near = Math.max(.01, radius / 500);
+        camera.far = Math.max(1200, radius * 90);
+        if (scene.fog) { scene.fog.near = Math.max(26, radius * 1.25); scene.fog.far = Math.max(180, radius * 6.5); }
+        camera.updateProjectionMatrix();
+      }
       const hSign = ui.handleSide.value.endsWith('-') ? -1 : 1;
       const hAlongX = ui.handleSide.value.startsWith('x');
       // 提手耳片很薄；提手端使用斜视角，避免正对薄边时只看到一条竖线。
@@ -3203,9 +3937,13 @@
         : loadNormal.clone().multiplyScalar(dist).add(new THREE.Vector3(-loadNormal.z*dist*.30,dist*.42,loadNormal.x*dist*.30));
       // 透视保留提手偏上的构图；所有视图均用世界 Y 轴，不再同步 Orbit 旋转基准。
       const perspectivePose=defaultPerspectivePose(dist);
-      const positions = { perspective:perspectivePose.offset, front:new THREE.Vector3(0,Math.max(1,size.y*.10),dist), side:new THREE.Vector3(dist,Math.max(1,size.y*.10),0), top:new THREE.Vector3(.001,dist,dist*.11), handle:handleView, bagbottom:bottomView, loadface:loadView };
+      const palletFrontSign = palletView && palletPlan?.options?.faceConstraint?.enabled
+        ? (palletPlan.options.faceConstraint.palletEdge === 'z+' ? 1 : -1)
+        : 1;
+      const positions = { perspective:perspectivePose.offset, front:new THREE.Vector3(0,Math.max(1,size.y*.10),palletFrontSign*dist), side:new THREE.Vector3(dist,Math.max(1,size.y*.10),0), top:new THREE.Vector3(.001,dist,dist*.11), handle:handleView, bagbottom:bottomView, loadface:loadView };
       floor.visible = true; grid.visible = true;
       targetCamera = {from:camera.position.clone(), to:positions[view].add(target), start:performance.now()};
+      startRenderLoop();
     }
 
     function setModeInstant(nextMode) {
@@ -3217,12 +3955,18 @@
       const box = new THREE.Box3().setFromObject(productGroup);
       if (envelope) box.expandByObject(envelope);
       const size = box.getSize(new THREE.Vector3());
+      if (isPallet()) {
+        fitCamera([size.x, size.y, size.z], { pallet: true, resetDirection: true });
+        requestRender();
+        targetCamera = null;
+        return;
+      }
       const dist = Math.max(4,Math.hypot(size.x,size.y,size.z)*1.90);
       const pose=defaultPerspectivePose(dist);
       camera.position.copy(controls.target.clone().add(pose.offset));
       camera.lookAt(controls.target);
       controls.update();
-      renderer.render(scene,camera);
+      requestRender();
       targetCamera = null;
     }
 
@@ -3230,6 +3974,7 @@
     // 主渲染器关闭 preserveDrawingBuffer 以提升交互性能；离屏导出由该渲染器完成。
     let exportRenderer = null;
     function getExportRenderer() {
+      if (!webglAvailable) throw new Error('当前设备不支持 WebGL，无法导出三维 PNG 或 PDF。');
       if (!exportRenderer) {
         const canvas = document.createElement('canvas');
         exportRenderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: true, preserveDrawingBuffer: true});
@@ -3386,6 +4131,7 @@
         category:ui.category.value,preset:ui.preset.value,presetName:ui.presetName.value,orientation:ui.orientation.value,softdrawVariant:ui.softdrawVariant.value,hangingSideDirection:ui.hangingSideDirection.value,rollCore:ui.rollCore.value,rollBundleMode:ui.rollBundleMode.value,rollBundleX:ui.rollBundleX.value,rollBundleZ:ui.rollBundleZ.value,rollBundleY:ui.rollBundleY.value,
         rows:ui.rows.value,cols:ui.cols.value,layers:ui.layers.value,gap:ui.gap.value,envelope:ui.envelope.checked,
         handleSide:ui.handleSide.value,autoRotate:ui.autoRotate.checked,mode,presetDirty,showOuterProducts,showOuterLabels,caseMouthOpen,caseXrayEnabled,showCartonName,
+        showOuterHighlight,outerHighlightTarget:outerHighlightTarget?{...outerHighlightTarget}:null,
         packagingLevel,outerPreset:ui.outerPreset.value,outerPresetName:ui.outerPresetName.value,outerUnit:ui.outerUnit.value,
         outerRows:ui.outerRows.value,outerCols:ui.outerCols.value,outerLayers:ui.outerLayers.value,outerSpacing:ui.outerSpacing.value,outerMargin:ui.outerMargin.value,
         outerLoadFace:ui.outerLoadFace.value,
@@ -3399,6 +4145,8 @@
         outerDraftsSnapshot:cloneJson(outerDrafts),
         outerSelectionsSnapshot:{...outerSelections},
         midpackDraftSnapshot:midpackDraft ? cloneJson(midpackDraft) : null,
+        palletDraftSnapshot: isPallet() ? cloneJson(readPalletForm()) : cloneJson(palletDraft),
+        palletSelectionSnapshot: palletSelection,
         cameraPosition:camera.position.clone(),cameraQuaternion:camera.quaternion.clone(),controlsTarget:controls.target.clone(),
         cameraNear:camera.near,cameraFar:camera.far,cameraZoom:camera.zoom,cameraFov:camera.fov,cameraAspect:camera.aspect,
         controlsMinDistance:controls.minDistance,controlsMaxDistance:controls.maxDistance,
@@ -3417,7 +4165,7 @@
         for (const level of ['bigpack','case']) outerSelections[level] = state.outerSelectionsSnapshot[level] || 'temporary';
       }
       midpackDraft = state.midpackDraftSnapshot ? cloneJson(state.midpackDraftSnapshot) : null;
-      packagingLevel = PACKAGING_LEVELS.includes(state.packagingLevel) ? state.packagingLevel : 'midpack';
+      packagingLevel = ['midpack', 'bigpack', 'case', 'pallet'].includes(state.packagingLevel) ? state.packagingLevel : 'midpack';
       updateLevelButtons();
       ui.category.value = state.category;
       populatePresets(state.preset);
@@ -3435,7 +4183,14 @@
       caseMouthOpen = Boolean(state.caseMouthOpen);
       caseXrayEnabled = typeof state.caseXrayEnabled === 'boolean' ? state.caseXrayEnabled : true;
       showCartonName = typeof state.showCartonName === 'boolean' ? state.showCartonName : true;
-      if (!isMidpack()) {
+      showOuterHighlight = Boolean(state.showOuterHighlight);
+      const t = state.outerHighlightTarget;
+      outerHighlightTarget = t && [t.x,t.z,t.y].every(v => Number.isInteger(v) && v >= 0) ? { ...t } : null;
+      if (isPallet()) {
+        palletSelection = state.palletSelectionSnapshot || 'temporary';
+        palletDraft = state.palletDraftSnapshot ? normalizePalletPreset(state.palletDraftSnapshot, palletDefaults('case')) : palletDefaults('case');
+        populatePalletPresets(palletSelection, palletDraft);
+      } else if (!isMidpack()) {
         outerSelections[packagingLevel] = state.outerPreset || 'temporary';
         populateOuterPresets(state.outerPreset || 'temporary',state.outerValues || outerDrafts[packagingLevel]);
         ui.outerPreset.value = state.outerPreset || 'temporary';
@@ -3467,7 +4222,7 @@
       controls.minPolarAngle = state.controlsMinPolarAngle ?? controls.minPolarAngle;
       controls.maxPolarAngle = state.controlsMaxPolarAngle ?? controls.maxPolarAngle;
       controls.enabled = typeof state.controlsEnabled === 'boolean' ? state.controlsEnabled : true;
-      controls.target.copy(state.controlsTarget); controls.update(); renderer.render(scene,camera);
+      controls.target.copy(state.controlsTarget); controls.update(); requestRender();
       setPresetStatus(state.presetStatus,state.presetTone);
       setOuterPresetStatus(state.outerPresetStatus || '',state.outerPresetTone || '');
     }
@@ -3505,7 +4260,10 @@
       for (const type of Object.keys(catalog)) midpack[type] = getPresetList(type);
       const outer = {};
       for (const level of ['bigpack', 'case']) outer[level] = getOuterPresetList(level);
-      return { midpack, outer };
+      const pallet = {
+        independent: palletPresetBucket().custom.map(item => normalizePalletPreset(item)),
+      };
+      return { midpack, outer, pallet };
     }
 
     function currentProductSnapshot() {
@@ -3529,7 +4287,7 @@
 
     function buildPdfEntriesForExport(options = {}) {
       return buildPdfEntries({
-        stages: options.stages || ['midpack', 'bigpack', 'case'],
+        stages: options.stages || ['midpack', 'bigpack', 'case', 'pallet'],
         productTypes: options.productTypes || Object.keys(catalog),
         currentProduct: options.currentProduct || null,
       }, buildPdfLists());
@@ -3595,8 +4353,39 @@
         case 'midpack': return prepareMidpackForPdf(entry);
         case 'bigpack': return prepareOuterForPdf('bigpack', entry);
         case 'case': return prepareOuterForPdf('case', entry);
+        case 'pallet': return preparePalletForPdf(entry);
         default: return false;
       }
+    }
+
+    function preparePalletForPdf(entry) {
+      const s = entry.presetSnapshot || {};
+      const packageType = s.packageType || entry.sourceType || 'case';
+      palletSelection = 'temporary';
+      palletDraft = normalizePalletPreset({ ...s, packageType }, palletDefaults(packageType));
+      if (catalog[entry.productType]) {
+        ui.category.value = entry.productType;
+        populatePresets(ui.preset.value);
+      }
+      packagingLevel = 'pallet'; mode = 'array';
+      ui.palletPresetName.value = entry.presetName || '叠板方案';
+      ui.palletPackageType.value = palletDraft.packageType;
+      ui.palletUnitLengthMm.value = s.unitSizeMm?.lengthMm || 600;
+      ui.palletUnitWidthMm.value = s.unitSizeMm?.widthMm || 400;
+      ui.palletUnitHeightMm.value = s.unitSizeMm?.heightMm || 300;
+      ui.palletLoadHeightMm.value = palletDraft.loadHeightMm;
+      ui.palletCornerProtectors.value = palletDraft.softpackOptions?.cornerProtectorsEnabled ? 'on' : 'off';
+      ui.palletCornerLossLengthMm.value = palletDraft.softpackOptions?.cornerLossLengthMm || 0;
+      ui.palletCornerLossWidthMm.value = palletDraft.softpackOptions?.cornerLossWidthMm || 0;
+      ui.palletAllowTopSideLay.value = palletDraft.softpackOptions?.topSideLayMode || (palletDraft.softpackOptions?.allowTopSideLay ? 'auto' : 'off');
+      ui.palletShowFaceLabels.value = palletDraft.showFaceLabels === false ? 'off' : 'on';
+      ui.palletLayerStrategy.value = s.layerStrategy || 'cyclic-interlock';
+      ui.palletBasePattern.value = (s.basePattern || ['A','A','B']).join('');
+      ui.palletFaceConstraintEnabled.value = palletFaceConstraintUiValue(s.faceConstraint);
+      syncPalletSourceUi();
+      palletPlan = optimizePalletLayout(palletOptionsFromUi());
+      syncStagePanels(); syncBagControls(); rebuild(false); setPerspectiveInstant();
+      return true;
     }
 
     // 中包：复用现有 preparePresetForPdf，用条目快照重建，不读当前 UI。
@@ -3766,11 +4555,12 @@
     }
 
     // ===== 第 4 步：新 PDF 生成器（分区 + 中文 text + 65/35 版式 + 预览 Blob URL） =====
-    const STAGE_COLORS = { product: [90, 110, 140], midpack: [23, 92, 211], bigpack: [23, 126, 170], case: [140, 95, 49] };
-    const STAGE_SHORT_NAME = { product: '单元定义', midpack: '中包', bigpack: '大包', case: '装箱' };
-    const PDF_TYPE_SHORT_NAME = { handkerchief: '纸手帕', softdraw: '软抽', roll: '卫卷' };
+    const STAGE_COLORS = { product: [90, 110, 140], midpack: [23, 92, 211], bigpack: [23, 126, 170], case: [140, 95, 49], pallet: [91, 118, 72] };
+    const STAGE_SHORT_NAME = { product: '单元定义', midpack: '中包', bigpack: '大包', case: '装箱', pallet: '叠板' };
+    const PDF_TYPE_SHORT_NAME = { handkerchief: '纸手帕', softdraw: '软抽', roll: '卫卷', pallet: '叠板包装' };
 
     function sourceTypeLabel(group) {
+      if (group.stage === 'pallet') return group.sourceType === 'softpack' ? '软包叠板' : '纸箱叠板';
       if (group.stage === 'bigpack' || group.stage === 'case') {
         return group.sourceType === 'midpack' ? '经中包装入' : '单粒/小包直装';
       }
@@ -3908,7 +4698,9 @@
       doc.text(`${group.stageName}｜${group.productName}｜${sourceTypeLabel(group)}`, margin + 4, margin + 6.5);
       doc.setFontSize(8);
       let sourceLine = '来源：单粒/小包';
-      if (group.stage === 'bigpack' || group.stage === 'case') {
+      if (group.stage === 'pallet') {
+        sourceLine = `包装形态：${group.sourceType === 'softpack' ? '软包' : '纸箱'}（独立叠板规格）`;
+      } else if (group.stage === 'bigpack' || group.stage === 'case') {
         sourceLine = group.sourceType === 'midpack'
           ? `来源：${group.sourcePresetName || '中包'}`
           : '来源：单粒/小包直装';
@@ -3990,14 +4782,15 @@
     function setPdfExportBusy(session, busy) {
       if (pdfExportSession !== session) return;
       session.exporting = busy;
-      ui.batchPreviewBtn.disabled = busy;
-      ui.batchDownloadBtn.disabled = busy;
+      ui.batchPreviewBtn.disabled = busy || !webglAvailable;
+      ui.batchDownloadBtn.disabled = busy || !webglAvailable;
       ui.batchApplyScopeBtn.disabled = busy;
       ui.batchEntryList.inert = busy;
     }
 
     // 主生成器：封面 → 各工段章节页 → 分品类/来源路径的数据页，返回 jsPDF 实例。
     async function generateSessionPdf(session, token) {
+      if (!webglAvailable) throw new Error('当前设备不支持 WebGL，无法生成包含三维透视图的 PDF。');
       const { jsPDF } = window.jspdf;
       if (!jsPDF) throw new Error('PDF 组件未加载');
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true, putOnlyUsedFonts: true });
@@ -4010,7 +4803,7 @@
       const layout = sessionLayout(doc);
 
       // 按工段聚合 groups，保持 product→midpack→bigpack→case 顺序。
-      const STAGE_ORDER = ['product', 'midpack', 'bigpack', 'case'];
+      const STAGE_ORDER = ['product', 'midpack', 'bigpack', 'case', 'pallet'];
       const stageGroups = new Map();
       for (const group of groups) {
         if (!stageGroups.has(group.stage)) stageGroups.set(group.stage, []);
@@ -4248,8 +5041,14 @@
       const effectiveOuter = Object.fromEntries(
         ['bigpack','case'].map(level => [level, cloneJson(getOuterPresetList(level).filter(item => item.id !== 'temporary'))])
       );
+      const effectivePallet = Object.fromEntries(
+        Object.keys(catalog).map(type => [type, cloneJson((palletPresetBucket().custom || [])
+          .filter(item => item?.source?.productType === type)
+          .map(item => normalizePalletPreset(item)))])
+      );
       const midpackCount = Object.values(effectiveMidpack).reduce((sum, list) => sum + list.length, 0);
       const outerCount = Object.values(effectiveOuter).reduce((sum, list) => sum + list.length, 0);
+      const palletCount = Object.values(effectivePallet).reduce((sum, list) => sum + list.length, 0);
       return {
         schemaVersion: PRESET_EXPORT_SCHEMA_VERSION,
         app: EXPORT_APP_ID,
@@ -4257,6 +5056,7 @@
         summary: {
           midpackPresets: midpackCount,
           outerPresets: outerCount,
+          palletPresets: palletCount,
           productSizeProfiles: Object.keys(catalog).length
         },
         presets: {
@@ -4267,6 +5067,7 @@
         backup: {
           midpack: cloneJson(presetStore),
           outer: cloneJson(outerPresetStore),
+          pallet: cloneJson(palletPresetStore || { custom: [] }),
           productSizes: cloneJson(productSizeOverrides)
         }
       };
@@ -4289,7 +5090,7 @@
         a.remove();
         // Safari / 内嵌浏览器可能延迟接管 Blob，避免过早释放导致下载到 0 字节文件。
         setTimeout(() => URL.revokeObjectURL(url), 30000);
-        setPresetIoStatus(`已导出 ${payload.summary.midpackPresets} 个中包预设、${payload.summary.outerPresets} 个外包装方案（${Math.max(1, Math.round(blob.size/1024))} KB）。`, 'success');
+        setPresetIoStatus(`已导出 ${payload.summary.midpackPresets} 个中包预设、${payload.summary.outerPresets} 个外包装方案、${payload.summary.palletPresets} 个叠板方案（${Math.max(1, Math.round(blob.size/1024))} KB）。`, 'success');
       } catch (error) {
         setPresetIoStatus(`导出失败：${error.message || error}`, 'error');
       }
@@ -4303,7 +5104,8 @@
       const backup = data.schemaVersion >= 2 && isPlainObject(data.backup) ? data.backup : data;
       const hasMidpack = isPlainObject(backup.midpack);
       const hasOuter = isPlainObject(backup.outer);
-      if (!hasMidpack && !hasOuter) return { ok: false, error: '文件中没有中包预设或外包装预设数据。' };
+      const hasPallet = isPlainObject(backup.pallet);
+      if (!hasMidpack && !hasOuter && !hasPallet) return { ok: false, error: '文件中没有中包预设、外包装预设或叠板预设数据。' };
       return { ok: true, data };
     }
 
@@ -4329,6 +5131,11 @@
         if (bucket && Array.isArray(bucket.custom)) custom += bucket.custom.filter(item => isValidPresetEntry(item, 'custom:')).length;
       }
       return { custom };
+    }
+
+    function countPalletEntries(raw) {
+      const list = raw && Array.isArray(raw.custom) ? raw.custom : [];
+      return { custom: list.filter(item => isValidPresetEntry(item, 'custom:')).length };
     }
 
     function resolveImportName(name, taken) {
@@ -4386,6 +5193,13 @@
       }
     }
 
+    function mergePalletStore(raw) {
+      if (!isPlainObject(raw)) return;
+      const bucket = palletPresetBucket();
+      if (!Array.isArray(raw.custom)) return;
+      mergeCustomEntries(bucket.custom, raw.custom, new Set(getPalletPresetList().map(p => p.name)), 'custom:');
+    }
+
     function sanitizeMidpackStore(raw) {
       const store = {};
       for (const type of Object.keys(catalog)) {
@@ -4419,6 +5233,15 @@
       return store;
     }
 
+    function sanitizePalletStore(raw) {
+      const store = { custom: [] };
+      if (!isPlainObject(raw) || !Array.isArray(raw.custom)) return store;
+      store.custom = raw.custom
+        .filter(item => isValidPresetEntry(item, 'custom:'))
+        .map(item => normalizePalletPreset(item));
+      return store;
+    }
+
     function sanitizeProductSizeStore(raw) {
       const store = {};
       if (!isPlainObject(raw)) return store;
@@ -4435,21 +5258,25 @@
         // 仅覆盖文件实际包含的模块，缺失模块（如只有 midpack）不清空。
         if (isPlainObject(backup.midpack)) presetStore = sanitizeMidpackStore(backup.midpack);
         if (isPlainObject(backup.outer)) outerPresetStore = sanitizeOuterStore(backup.outer);
+        if (isPlainObject(backup.pallet)) palletPresetStore = sanitizePalletStore(backup.pallet);
         if (isPlainObject(backup.productSizes)) productSizeOverrides = sanitizeProductSizeStore(backup.productSizes);
       } else {
         summary = mergeMidpackStore(backup.midpack);
         mergeOuterStore(backup.outer);
+        mergePalletStore(backup.pallet);
         if (isPlainObject(backup.productSizes)) {
           Object.assign(productSizeOverrides, sanitizeProductSizeStore(backup.productSizes));
         }
       }
       persistPresetStore();
       persistOuterPresetStore();
+      persistPalletPresetStore();
       persistProductSizeOverrides();
       syncProductSizeUi();
       const midpackId = ui.preset.value;
       populatePresets(midpackId);
       if (!isMidpack()) populateOuterPresets(ui.outerPreset.value || outerSelections[packagingLevel] || 'temporary', outerDrafts[packagingLevel]);
+      if (isPallet()) populatePalletPresets(palletSelection, palletDraft);
       return summary;
     }
 
@@ -4459,11 +5286,13 @@
       const backup = importBackupData(data);
       const midpack = countMidpackEntries(backup.midpack);
       const outer = countOuterEntries(backup.outer);
+      const pallet = countPalletEntries(backup.pallet);
       const exportedAt = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : '未知';
       ui.importDialogSummary.textContent =
         `文件版本 ${data.schemaVersion}，导出时间 ${exportedAt}。\n` +
         `中包预设：${midpack.custom} 个自定义、${midpack.overrides} 个内置修改。\n` +
         `外包装方案：${outer.custom} 个自定义。\n\n` +
+        `叠板方案：${pallet.custom} 个自定义。\n\n` +
         `合并：保留现有预设，新增同名自动重命名；覆盖：清空现有自定义/修改并替换为文件内容（内置预设不受影响）。`;
       ui.importDialog.hidden = false;
     }
@@ -4494,7 +5323,13 @@
       rebuild(animateFlag);
     }
 
-    ui.category.addEventListener('change', populatePresets);
+    ui.category.addEventListener('change', () => {
+      populatePresets();
+      if (isPallet()) {
+        syncPalletSourceUi();
+        runPalletOptimizer();
+      }
+    });
     // 小粒尺寸：规格模式切换 + 输入预览 + 保存/恢复默认（独立存储，不写 catalog）。
     function productSizeIsRoll() { return ui.category.value === 'roll'; }
     function collectProductSizeRaw() {
@@ -4629,7 +5464,7 @@
     ui.handleSide.addEventListener('change', () => { markPresetDirty(); syncProductRuleUi(); rebuild(true); });
     ui.rotationDirection.addEventListener('change',()=>{
       applyRotationDirection();
-      localStorage.setItem(scopedKey(ROTATION_DIRECTION_KEY),ui.rotationDirection.value);
+      writeStoredJson(scopedKey(ROTATION_DIRECTION_KEY), ui.rotationDirection.value);
     });
     $('savePresetBtn').addEventListener('click', saveCurrentPreset);
     $('saveAsPresetBtn').addEventListener('click', saveAsPreset);
@@ -4640,6 +5475,7 @@
       const active = activeWorkflowStage();
       if (active === 'product') { switchWorkflowStage('midpack'); return; }
       if (active === 'midpack') { saveCurrentPreset(); return; }
+      if (active === 'pallet') { savePalletPreset(); return; }
       saveOuterPreset();
     });
     // 批量 PDF 窗口：读取范围 checkbox → 建立会话 → 渲染条目编辑列表。
@@ -4649,6 +5485,7 @@
       if (ui.batchStageMidpack.checked) stages.push('midpack');
       if (ui.batchStageBigpack.checked) stages.push('bigpack');
       if (ui.batchStageCase.checked) stages.push('case');
+      if (ui.batchStagePallet.checked) stages.push('pallet');
       const productTypes = [];
       if (ui.batchTypeHandkerchief.checked) productTypes.push('handkerchief');
       if (ui.batchTypeSoftdraw.checked) productTypes.push('softdraw');
@@ -4738,6 +5575,7 @@
     }
 
     $('batchPdfBtn').addEventListener('click', () => {
+      if (!webglAvailable) return;
       applyBatchScope();
       setBatchPdfPreviewStatus('', '');
       ui.batchPdfDialog.hidden = false;
@@ -4757,6 +5595,8 @@
     ui.viewSettingsCloseBtn.addEventListener('click', () => { ui.viewSettingsDialog.hidden = true; });
     // 预设数据管理弹窗
     ui.dataManageBtn.addEventListener('click', () => { ui.dataManageDialog.hidden = false; });
+    ui.webglOpenDataManageBtn.addEventListener('click', () => { ui.dataManageDialog.hidden = false; });
+    ui.webglReloadBtn.addEventListener('click', () => { location.reload(); });
     ui.dataManageCloseBtn.addEventListener('click', () => { ui.dataManageDialog.hidden = true; });
     ui.exportPresetsBtn.addEventListener('click', exportPresetsJson);
     ui.importPresetsBtn.addEventListener('click', () => ui.importPresetsFile.click());
@@ -4826,6 +5666,60 @@
       syncCartonFormalNameUi(); syncProductRuleUi(); requestRebuild(false);
     }));
     outerLiveInputs.forEach(input => input.addEventListener('change', () => { if (!isMidpack()) flushRebuild(false); }));
+    let palletOptimizeTimer = 0;
+    let palletOptimizePending = false;
+    const schedulePalletOptimizer = (delay = 180) => {
+      if (!isPallet()) return;
+      palletOptimizePending = true;
+      clearTimeout(palletOptimizeTimer);
+      palletOptimizeTimer = window.setTimeout(() => {
+        palletOptimizeTimer = 0;
+        if (!palletOptimizePending || !isPallet()) return;
+        palletOptimizePending = false;
+        runPalletOptimizer();
+      }, delay);
+    };
+    const flushPalletOptimizer = () => {
+      clearTimeout(palletOptimizeTimer);
+      palletOptimizeTimer = 0;
+      if (!palletOptimizePending || !isPallet()) return;
+      palletOptimizePending = false;
+      runPalletOptimizer();
+    };
+    const palletDimensionInputs = [ui.palletUnitLengthMm, ui.palletUnitWidthMm, ui.palletUnitHeightMm, ui.palletLoadHeightMm, ui.palletCornerLossLengthMm, ui.palletCornerLossWidthMm];
+    const palletChoiceInputs = [ui.palletPackageType, ui.palletCornerProtectors, ui.palletAllowTopSideLay, ui.palletShowFaceLabels, ui.palletLayerStrategy, ui.palletBasePattern, ui.palletFaceConstraintEnabled];
+    palletDimensionInputs.forEach(input => {
+      input.addEventListener('input', () => {
+        if (!isPallet()) return;
+        setPalletStatus('叠板参数已修改；停顿输入后自动重新优化。', 'warn');
+        schedulePalletOptimizer(220);
+      });
+      input.addEventListener('change', () => {
+        palletOptimizePending = true;
+        flushPalletOptimizer();
+      });
+      input.addEventListener('blur', flushPalletOptimizer);
+    });
+    palletChoiceInputs.forEach(input => input.addEventListener('change', () => {
+      if (!isPallet()) return;
+      if (input === ui.palletPackageType) {
+        const currentName = ui.palletPresetName.value.trim();
+        if (/^(纸箱|软包)叠板临时方案$/.test(currentName)) {
+          ui.palletPresetName.value = ui.palletPackageType.value === 'softpack' ? '软包叠板临时方案' : '纸箱叠板临时方案';
+        }
+        syncWorkflowPath();
+      }
+      syncPalletSourceUi();
+      palletOptimizePending = true;
+      flushPalletOptimizer();
+      setPalletStatus('叠板参数已修改；优化结果已更新，保存方案后写入本地。', 'warn');
+    }));
+    ui.palletPresetName.addEventListener('input', () => {
+      if (!isPallet()) return;
+      rememberPalletDraft();
+      ui.title.textContent = `叠板 · ${ui.palletPresetName.value.trim() || '叠板临时方案'}`;
+      setPalletStatus('叠板方案名称已修改；保存方案后写入本地。', 'warn');
+    });
     // 方案名称只影响标题与草稿，不触发整场重建。
     ui.outerPresetName.addEventListener('input', () => {
       if (isMidpack()) return;
@@ -4842,6 +5736,38 @@
       syncFloatingCartonName(naming);
       syncOuterSourceSummary();
       syncProductRuleUi();
+    });
+    function savePalletPreset() {
+      if (!isPallet()) return;
+      const values = readPalletForm();
+      const name = values.name.trim();
+      const bucket = palletPresetBucket();
+      const current = bucket.custom.find(item => item.id === palletSelection);
+      if (current) {
+        const index = bucket.custom.indexOf(current);
+        bucket.custom[index] = { ...values, id: current.id, name };
+      } else {
+        const names = new Set(getPalletPresetList().map(item => item.name));
+        let finalName = name || '叠板方案';
+        const baseName = finalName;
+        let serial = 2;
+        while (names.has(finalName)) finalName = `${baseName} ${serial++}`;
+        const id = `custom:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 7)}`;
+        bucket.custom.push({ ...values, id, name: finalName });
+        palletSelection = id;
+        values.name = finalName;
+      }
+      persistPalletPresetStore();
+      populatePalletPresets(palletSelection, palletDraft);
+      setPalletStatus(`已保存“${values.name}”。`, 'success');
+    }
+    ui.savePalletPresetBtn.addEventListener('click', savePalletPreset);
+    ui.newPalletPresetBtn.addEventListener('click', () => {
+      if (!isPallet()) return;
+      palletSelection = 'temporary';
+      palletDraft = palletDefaults(ui.palletPackageType.value || 'case');
+      populatePalletPresets('temporary', palletDraft);
+      setPalletStatus('已新建叠板临时方案。', 'success');
     });
     function saveOuterPreset() {
       if (isMidpack()) return;
@@ -4890,6 +5816,26 @@
       showOuterLabels = ui.outerLabelToggleInput.checked;
       syncBagControls(); rebuild(false);
     });
+    ui.outerHighlightBtn.addEventListener('click', () => {
+      if (isMidpack() || isPallet() || mode !== 'array') return;
+      showOuterHighlight = !showOuterHighlight;
+      outerHighlightTarget = null; // 重新开启时回到默认可见角单元。
+      syncBagControls(); rebuild(false);
+    });
+    // 点击切换突出目标：区分拖拽（位移或时长超阈值）与点击，避免环绕旋转误选。
+    renderer.domElement.addEventListener('pointerdown', event => {
+      unitPickDown = { x:event.clientX, y:event.clientY, at:performance.now() };
+    });
+    renderer.domElement.addEventListener('pointerup', event => {
+      const down = unitPickDown; unitPickDown = null;
+      if (!down || !webglAvailable) return;
+      if (Math.hypot(event.clientX-down.x, event.clientY-down.y) > 6 || performance.now()-down.at > 600) return;
+      if (!showOuterHighlight || isMidpack() || isPallet() || mode !== 'array') return;
+      const picked = pickOuterUnitAt(event.clientX, event.clientY);
+      if (!picked) return;
+      outerHighlightTarget = picked;
+      syncBagControls(); rebuild(false);
+    });
     ui.caseMouthBtn.addEventListener('click', () => {
       if (packagingLevel !== 'case' || !ui.envelope.checked || mode !== 'array') return;
       caseMouthOpen = !caseMouthOpen;
@@ -4908,6 +5854,7 @@
       syncBagControls();
     });
     $('exportBtn').addEventListener('click', () => {
+      if (!webglAvailable) return;
       const source = captureViewportCanvas();
       source.toBlob(blob => { const a=document.createElement('a'); a.href=URL.createObjectURL(blob); const levelName=isMidpack()?'中包':outerLevelName(packagingLevel); a.download=`${levelName}排列-${ui.title.textContent.replace(/[\\/:*?"<>|]/g,'-')}.png`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); });
     });
@@ -4915,8 +5862,25 @@
     function resize() {
       const rect = ui.canvas.getBoundingClientRect();
       renderer.setSize(rect.width,rect.height,false); camera.aspect = rect.width/Math.max(1,rect.height); camera.updateProjectionMatrix();
+      requestRender();
     }
     new ResizeObserver(resize).observe(ui.canvas);
+
+    function activateWebglFallback() {
+      if (webglAvailable) return;
+      const base = '当前浏览器或设备无法创建 WebGL 渲染器。参数编辑、叠板计算和预设 JSON 管理仍可继续使用；三维 PNG 与批量 PDF 已禁用。';
+      const detail = String(webglFailure?.message || '').trim();
+      ui.webglFallbackDetail.textContent = detail ? `${base}\n诊断：${detail}` : base;
+      ui.webglFallback.hidden = false;
+      for (const button of [ui.exportBtn, ui.batchPdfBtn, ui.batchPreviewBtn, ui.batchDownloadBtn]) {
+        if (!button) continue;
+        button.disabled = true;
+        button.title = '当前设备不支持 WebGL，无法导出三维 PNG 或 PDF。';
+      }
+      ui.batchStatus.dataset.tone = 'error';
+      ui.batchStatus.textContent = 'WebGL 不可用：三维 PNG/PDF 导出已禁用，预设 JSON 管理仍可使用。';
+    }
+    activateWebglFallback();
     // ?debug=1 时显示「复制性能数据」按钮，便于自动化验收抓取 sceneStats。
     const copyStatsBtn = $('copyStatsBtn');
     if (new URLSearchParams(location.search).has('debug')) copyStatsBtn.hidden = false;
@@ -4932,24 +5896,30 @@
       setTimeout(() => { copyStatsBtn.textContent = '复制性能数据'; }, 1500);
     });
     function animate(now) {
-      requestAnimationFrame(animate);
+      renderLoopFrame = 0;
+      renderingActiveMotion = true;
+      let cameraMoved = false;
       if (targetCamera) {
-        const t=Math.min(1,(now-targetCamera.start)/520), e=1-Math.pow(1-t,3); camera.position.lerpVectors(targetCamera.from,targetCamera.to,e); if(t===1) targetCamera=null;
+        const t=Math.min(1,(now-targetCamera.start)/520), e=1-Math.pow(1-t,3); camera.position.lerpVectors(targetCamera.from,targetCamera.to,e); if(t===1) targetCamera=null; cameraMoved = true;
       } else if (ui.autoRotate.checked && !cameraInteracting) {
         const offset=camera.position.clone().sub(controls.target).applyAxisAngle(new THREE.Vector3(0,1,0),.0028);
-        camera.position.copy(controls.target).add(offset);
+        camera.position.copy(controls.target).add(offset); cameraMoved = true;
       }
-      controls.update(); renderer.render(scene,camera);
+      if (cameraMoved) controls.update();
+      renderer.render(scene,camera);
+      renderingActiveMotion = false;
+      if (hasActiveRenderMotion()) startRenderLoop();
     }
     // 启动：先立即渲染界面（不阻塞），再后台解析 PocketBay 身份并切换到 user.id 隔离数据。
     function bootstrapUI() {
       productSizeOverrides = loadProductSizeOverrides();
       outerPresetStore = loadOuterPresetStore();
       presetStore = loadPresetStore();
-      ui.rotationDirection.value = localStorage.getItem(scopedKey(ROTATION_DIRECTION_KEY)) === 'camera' ? 'camera' : 'model';
+      palletPresetStore = loadPalletPresetStore();
+      ui.rotationDirection.value = readStoredJson(scopedKey(ROTATION_DIRECTION_KEY), 'model') === 'camera' ? 'camera' : 'model';
       applyRotationDirection();
       renderPocketBayUser();
-      populatePresets(); resize(); setPerspectiveInstant(); requestAnimationFrame(animate);
+      populatePresets(); resize(); setPerspectiveInstant();
     }
     async function initApp() {
       bootstrapUI();                                  // 立即可用，不再等网关身份接口
@@ -4958,6 +5928,7 @@
         productSizeOverrides = loadProductSizeOverrides();
         outerPresetStore = loadOuterPresetStore();
         presetStore = loadPresetStore();
+        palletPresetStore = loadPalletPresetStore();
         renderPocketBayUser();
         populatePresets();
       }

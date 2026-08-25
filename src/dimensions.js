@@ -118,6 +118,8 @@ export const HANGING_SIDE_DIRECTION_LABELS = Object.freeze({
   cross: '侧立同面十字（整包旋转 90°）',
 });
 export const PACKAGING_LEVELS = ['midpack', 'bigpack', 'case'];
+// 工作流工段包含独立的托盘叠板；PACKAGING_LEVELS 保持只表示已有外包装层级，避免旧预设/渲染逻辑被误判。
+export const WORKFLOW_STAGES = ['product', 'midpack', 'bigpack', 'case', 'pallet'];
 export const LOAD_FACES = ['y+', 'z-', 'z+', 'x-', 'x+'];
 export const UNIT_POSTURES = ['flat', 'side', 'end'];
 export const UNIT_FACINGS = ['z-', 'z+', 'x-', 'x+'];

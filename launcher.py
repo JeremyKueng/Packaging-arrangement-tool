@@ -33,6 +33,9 @@ REQUIRED_FILES = (
     TOOL_DIR / "src" / "pdf-entry-core.js",
     TOOL_DIR / "src" / "carton-naming.js",
     TOOL_DIR / "src" / "case-divider.js",
+    TOOL_DIR / "src" / "pallet-core.js",
+    TOOL_DIR / "src" / "pallet-preset-core.js",
+    TOOL_DIR / "src" / "storage-core.js",
     TOOL_DIR / "assets" / "vinda-logo.png",
     TOOL_DIR / "assets" / "fonts" / "cn-subset.ttf",
 )
