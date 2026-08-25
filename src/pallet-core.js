@@ -7,6 +7,11 @@ export const PALLET_HEIGHT_RANGE_MM = Object.freeze({ min: 1200, max: 2500 });
 export const PALLET_LOAD_HEIGHT_RANGE_MM = Object.freeze({ min: 1040, max: 2340 });
 export const PALLET_ORIENTATIONS = Object.freeze(['A', 'B']);
 export const PALLET_LAYER_STRATEGIES = Object.freeze(['same', 'alternate', 'cyclic-interlock', 'optimize']);
+// 单层件数预算：正常业务下 1200×1000 托盘单层极少超过几百件；更大的排布只会
+// 来自"逐字输入过程中的病态中间值"（如把单件长输成 4mm，一层能塞七千多件），
+// 继续枚举只会生成海量无效候选并冻结界面。各生成器在构建占位前先做预算检查，
+// 超预算的组合直接跳过——结果要么给出可行方案，要么以 unit-too-small 快速失败。
+export const PALLET_LAYER_ITEM_BUDGET = 1200;
 // 单边展示是“至少一排展示面 + 其余旋转填充”的约束，不是固定件数或固定排数。
 // 算法会枚举所有可行的展示排数；400×165 仅是其中会出现 1 排/3 排候选的示例。
 export const PALLET_FACE_LAYOUTS = Object.freeze(['auto', 'edge-exposure']);
@@ -469,6 +474,8 @@ function edgeExposureLayouts(options, posture = 'normal') {
       : [...new Set([fillColumns, flushFillColumns])].filter(value => value >= 1).sort((a, b) => b - a);
     for (const edgeCountUse of edgeCountPlans) {
       for (const columns of columnPlans) {
+        // 单层件数预算护栏：病态小尺寸（逐字输入中间值）不构建占位数组。
+        if (edgeRows * edgeCountUse + fillRows * columns > PALLET_LAYER_ITEM_BUDGET) continue;
         const placements = [];
         const edgeStartZ = sign * (pallet.widthMm / 2 - edgeSize.widthMm / 2);
         for (let row = 0; row < edgeRows; row++) {
@@ -552,6 +559,7 @@ function addRowLayout(rows, axis, options, posture = 'normal') {
   if (totalStrip > stripExtent + overhangMm * 2 + EPS) return [];
   let cursor = -totalStrip / 2;
   const placements = [];
+  let placed = 0;
   for (const entry of rowEntries) {
     const { orientation, size } = entry;
     const stripSize = axis === 'z' ? size.widthMm : size.lengthMm;
@@ -559,6 +567,8 @@ function addRowLayout(rows, axis, options, posture = 'normal') {
     if (cursor + stripSize > (axis === 'z' ? halfW : halfL) + overhangMm + EPS) return [];
     const count = Math.floor((axis === 'z' ? pallet.lengthMm : pallet.widthMm) / acrossSize + EPS);
     if (count < 1) return [];
+    // 单层件数预算护栏：病态小尺寸（逐字输入中间值）在此被拦截。
+    if ((placed += count) > PALLET_LAYER_ITEM_BUDGET) return [];
     const startAcross = -(count * acrossSize) / 2 + acrossSize / 2;
     const stripCenter = cursor + stripSize / 2;
     for (let index = 0; index < count; index++) {
@@ -646,6 +656,9 @@ function buildG4Layouts(options, posture) {
     if (!options.allowedOrientations.includes(hOri) || !options.allowedOrientations.includes(vOri)) continue;
     const hs = orientedSize(options.unitSizeMm, hOri, posture);
     const vs = orientedSize(options.unitSizeMm, vOri, posture);
+    // 单层件数预算护栏：病态小尺寸（逐字输入中间值）按容量上界整相位跳过。
+    const minFootprint = Math.min(hs.lengthMm, hs.widthMm, vs.lengthMm, vs.widthMm);
+    if (minFootprint > 0 && (availL / minFootprint) * (availW / minFootprint) > PALLET_LAYER_ITEM_BUDGET * 2) continue;
     const maxCutX = Math.min(12, Math.floor(availL / hs.lengthMm));
     const maxCutZ = Math.min(12, Math.floor(availW / hs.widthMm));
     for (let cutCols = 1; cutCols <= maxCutX; cutCols++) {
@@ -1266,6 +1279,22 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
     areaUtilization: 0,
   };
   const maxLayers = Math.max(0, Math.floor(options.loadHeightMm / options.unitSizeMm.heightMm + EPS));
+  // 病态小尺寸快速失败：单层容量超出预算时不再进入任何生成器
+  // （典型场景是逐字输入单件长宽时的中间值，如 4mm）。
+  const unitFootprint = Math.max(1, options.unitSizeMm.lengthMm * options.unitSizeMm.widthMm);
+  if ((options.pallet.lengthMm * options.pallet.widthMm) / unitFootprint > PALLET_LAYER_ITEM_BUDGET) {
+    return {
+      ok: false,
+      reason: 'unit-too-small',
+      options,
+      placements: [],
+      layers: [],
+      totalCount: 0,
+      layerCount: 0,
+      actualLoadHeightMm: 0,
+      totalHeightMm: options.pallet.heightMm,
+    };
+  }
   const normalStatesByDepth = [[initial]];
   // 模板档位一致性：单边展示下每个状态从首层起锁定同一模板变体，
   // 保证整板“每层数量一致”（约束二的覆盖面积一致口径）。
@@ -1414,7 +1443,11 @@ export function optimizePalletLayout(rawOptions = {}) {
 }
 
 export function formatPalletPlan(plan) {
-  if (!plan?.ok) return plan?.reason === 'unit-too-high' ? '单件高度超过可用堆叠高度' : '没有找到可行叠放方式';
+  if (!plan?.ok) {
+    if (plan?.reason === 'unit-too-high') return '单件高度超过可用堆叠高度';
+    if (plan?.reason === 'unit-too-small') return '单件尺寸过小，无法在托盘上形成有效排布（请检查长/宽输入是否完整）';
+    return '没有找到可行叠放方式';
+  }
   const surface = Number.isFinite(Number(plan.surfaceUtilization)) ? plan.surfaceUtilization : plan.footprintUtilization;
   const actualLoadHeightMm = Number(plan.actualLoadHeightMm ?? Math.max(0, plan.totalHeightMm - plan.options.pallet.heightMm));
   const palletHeightMm = Number(plan.options.pallet?.heightMm ?? PALLET_SIZE_MM.height);
