@@ -17,7 +17,7 @@ const EPS = 1e-6;
 // 因此调用方修改 placements / options / debug 不会污染后续调用。容量是有限的 LRU，
 // 避免长期编辑不同箱规时内存无限增长。
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
-export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v3';
+export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v4';
 
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
@@ -583,6 +583,118 @@ function sequenceCandidates(options, axis, posture = 'normal', enforceFace = tru
   });
 }
 
+// ===== G4 式四块混排（Scheithauer–Terno G4 结构的单层变体）=====
+//
+// 以托盘平面内一条完整的纵切线（x-cut）与横切线（z-cut）把单层划成四个象限，
+// 对角象限同朝向、相邻象限垂直（棋盘式 A/B 混排）：整排条带枚举永远到不了的
+// 密度往往就藏在这种结构里。x-cut 按 B 块长度档位枚举、z-cut 按 A 块宽度档位
+// 枚举，四个象限各自整填、逐块居中；候选同样接受边界、展示面约束校验。
+//
+// 生成结果按 options 对象做 WeakMap 记忆化——一次 optimizePalletLayout 内部
+// 规范化后的同一 options 会流经全部 layerOptions 调用（含侧倒层的逐深度枚举），
+// 记忆化把生成成本摊薄为每次优化最多两次（normal/side-lay 各一）。
+
+const g4LayoutMemo = new WeakMap();
+
+function fillG4Block(placements, size, x0, x1, z0, z1) {
+  const cols = Math.floor((x1 - x0 + EPS) / size.lengthMm);
+  const rows = Math.floor((z1 - z0 + EPS) / size.widthMm);
+  if (cols < 1 || rows < 1) return 0;
+  const startX = x0 + ((x1 - x0) - cols * size.lengthMm) / 2 + size.lengthMm / 2;
+  const startZ = z0 + ((z1 - z0) - rows * size.widthMm) / 2 + size.widthMm / 2;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      placements.push({ xMm: startX + col * size.lengthMm, zMm: startZ + row * size.widthMm, ...size });
+    }
+  }
+  return cols * rows;
+}
+
+function buildG4Layouts(options, posture) {
+  if (options.allowedOrientations.length < 2) return [];
+  const pallet = options.usablePallet || options.pallet;
+  // 与单边模板同口径：可用边界计入双侧出边余量，再对成品做整块居中。
+  const availL = pallet.lengthMm + options.overhangMm * 2;
+  const availW = pallet.widthMm + options.overhangMm * 2;
+  const enforceFace = options.faceConstraint.enabled && options.faceConstraint.layout !== 'edge-exposure';
+  const wantMarginMm = options.layerRules?.enabled ? options.layerRules.minRowMarginMm : 0;
+  const raw = [];
+  for (const horizontalFirst of [true, false]) {
+    const hOri = horizontalFirst ? 'A' : 'B';
+    const vOri = horizontalFirst ? 'B' : 'A';
+    if (!options.allowedOrientations.includes(hOri) || !options.allowedOrientations.includes(vOri)) continue;
+    const hs = orientedSize(options.unitSizeMm, hOri, posture);
+    const vs = orientedSize(options.unitSizeMm, vOri, posture);
+    const maxCutX = Math.min(12, Math.floor(availL / hs.lengthMm));
+    const maxCutZ = Math.min(12, Math.floor(availW / hs.widthMm));
+    for (let cutCols = 1; cutCols <= maxCutX; cutCols++) {
+      const cutX = cutCols * hs.lengthMm;
+      for (let cutRows = 1; cutRows <= maxCutZ; cutRows++) {
+        const cutZ = cutRows * hs.widthMm;
+        const placements = [];
+        let count = 0;
+        count += fillG4Block(placements, hs, 0, cutX, 0, cutZ);
+        count += fillG4Block(placements, vs, cutX, availL, 0, cutZ);
+        count += fillG4Block(placements, hs, cutX, availL, cutZ, availW);
+        count += fillG4Block(placements, vs, 0, cutX, cutZ, availW);
+        // 四块缺一不可：空象限会退化成整排条带，那些候选已由
+        // sequenceCandidates 覆盖，这里跳过以免重复膨胀候选池。
+        if (count !== placements.length || count < 4) continue;
+        // 整块居中：占位外接矩形中心对齐托盘中线，与条带/模板候选同一对称口径，
+        // 也让 compareState 的 centerOffset 公平参与比较。
+        const bounds = placementBounds(placements);
+        const dxCenter = -(bounds.minX + bounds.maxX) / 2;
+        const dzCenter = -(bounds.minZ + bounds.maxZ) / 2;
+        if (Math.abs(dxCenter) > EPS || Math.abs(dzCenter) > EPS) {
+          for (const item of placements) {
+            item.xMm += dxCenter;
+            item.zMm += dzCenter;
+          }
+        }
+        if (!placementsValid(placements, pallet, options.overhangMm)) continue;
+        if (enforceFace && !normalizeEdgeConstraint(placements, options)) continue;
+        if (wantMarginMm > 0 && !rowMarginRuleSatisfied(placements, options)) continue;
+        raw.push({
+          placements,
+          pattern: [hOri, vOri],
+          axis: 'g4',
+          posture,
+          layout: 'g4',
+          layoutLabel: 'G4 四块混排',
+        });
+      }
+    }
+  }
+  // 同一象限划分可能由两个相位产出相同布局；去重后再按件数取优，
+  // 上限量级与 maxCandidates 同阶，避免拖慢逐层排序。
+  const seen = new Set();
+  return raw
+    .filter(item => {
+      const key = item.placements.map(p => `${p.orientation}:${p.xMm.toFixed(1)}:${p.zMm.toFixed(1)}`).sort().join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.placements.length - a.placements.length)
+    .slice(0, 24);
+}
+
+function g4Layouts(options, posture) {
+  let byPosture = g4LayoutMemo.get(options);
+  if (!byPosture) {
+    byPosture = new Map();
+    g4LayoutMemo.set(options, byPosture);
+  }
+  if (!byPosture.has(posture)) byPosture.set(posture, buildG4Layouts(options, posture));
+  return byPosture.get(posture);
+}
+
+// 供界面说明与回归测试使用：列出当前输入下所有可行的 G4 四块混排单层方案。
+export function enumerateG4Layouts(rawOptions = {}, posture = 'normal') {
+  const options = normalizePalletOptions(rawOptions);
+  return cloneSerializable(g4Layouts(options, posture));
+}
+
 function evaluateLayer(placements, options) {
   const pallet = options.usablePallet || options.pallet;
   const area = pallet.lengthMm * pallet.widthMm;
@@ -719,6 +831,10 @@ function layerOptions(options, layerIndex, posture = 'normal') {
     : [
         ...sequenceCandidates(options, 'z', posture, !exemptFromFaceConstraint),
         ...sequenceCandidates(options, 'x', posture, !exemptFromFaceConstraint),
+        // G4 四块混排：整排条带枚举的补集，专补 A/B 棋盘式交错结构。
+        // same/alternate 策略会在下方按单件朝向过滤掉混排候选；cyclic/optimize
+        // 策略下与条带候选同台择优（件数优先），只在真正更密时胜出。
+        ...g4Layouts(options, posture),
       ];
   const requiredPattern = patterns.join('');
   let valid = candidates.filter(item => placementsValid(item.placements, options.usablePallet || options.pallet, options.overhangMm));
