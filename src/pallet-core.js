@@ -743,33 +743,48 @@ function layerOptions(options, layerIndex, posture = 'normal') {
   // （约束一的对齐平移），件数最大的候选未必放得进去；若在此剪掉小方案，
   // 会导致“有可行侧倒却整体失效”。侧倒层的取舍交给最终 compareSelection。
   if (posture === 'normal' && (options.layerStrategy === 'cyclic-interlock' || options.layerStrategy === 'optimize')) {
-    const maxCount = source.reduce((max, item) => Math.max(max, item.placements.length), 0);
-    source = source.filter(item => item.placements.length === maxCount);
+    // 保留前两档单层件数：最大件数用于最优解，次一档用于生成“每层数量下调整档”
+    // 的次优方案——若只留最大件数，搜索空间里根本不存在降密度的备选排列。
+    const distinctCounts = [...new Set(source.map(item => item.placements.length))].sort((a, b) => b - a);
+    const keepCounts = new Set(distinctCounts.slice(0, 2));
+    source = source.filter(item => keepCounts.has(item.placements.length));
   }
-  return source
-    .sort((a, b) => {
-      const countDiff = evaluateLayer(b.placements, options).count - evaluateLayer(a.placements, options).count;
-      if (countDiff) return countDiff;
-      if (options.layerStrategy === 'cyclic-interlock') {
-        const aMatch = a.pattern.slice(0, patterns.length).join('') === requiredPattern ? 1 : 0;
-        const bMatch = b.pattern.slice(0, patterns.length).join('') === requiredPattern ? 1 : 0;
-        if (aMatch !== bMatch) return bMatch - aMatch;
-      }
-      if (templateApplies) {
-        // 单边模板只保留一个候选时，同件数下优先覆盖面积更大的变体：
-        // 既提高层间支撑，也缩小与顶层侧倒块的轮廓差——否则较窄模板会把
-        // 约束一的必要出边从几毫米推高到几十毫米，直接损失顶层数量。
-        const aB = placementBounds(a.placements);
-        const bB = placementBounds(b.placements);
-        const aArea = (aB.maxX - aB.minX) * (aB.maxZ - aB.minZ);
-        const bArea = (bB.maxX - bB.minX) * (bB.maxZ - bB.minZ);
-        if (Math.abs(aArea - bArea) > 1) return bArea - aArea;
-      }
-      return evaluateLayer(a.placements, options).centerOffsetMm - evaluateLayer(b.placements, options).centerOffsetMm;
-    })
-    // 单边模板层只保留唯一最优结构：上下层覆盖面积必须一致，
-    // 且错层比较器不能在模板层之间制造差异。
-    .slice(0, templateApplies ? 1 : options.maxCandidates);
+  const sorted = source.sort((a, b) => {
+    const countDiff = evaluateLayer(b.placements, options).count - evaluateLayer(a.placements, options).count;
+    if (countDiff) return countDiff;
+    if (options.layerStrategy === 'cyclic-interlock') {
+      const aMatch = a.pattern.slice(0, patterns.length).join('') === requiredPattern ? 1 : 0;
+      const bMatch = b.pattern.slice(0, patterns.length).join('') === requiredPattern ? 1 : 0;
+      if (aMatch !== bMatch) return bMatch - aMatch;
+    }
+    if (templateApplies) {
+      // 单边模板同件数下优先覆盖面积更大的变体：
+      // 既提高层间支撑，也缩小与顶层侧倒块的轮廓差——否则较窄模板会把
+      // 约束一的必要出边从几毫米推高到几十毫米，直接损失顶层数量。
+      const aB = placementBounds(a.placements);
+      const bB = placementBounds(b.placements);
+      const aArea = (aB.maxX - aB.minX) * (aB.maxZ - aB.minZ);
+      const bArea = (bB.maxX - bB.minX) * (bB.maxZ - bB.minZ);
+      if (Math.abs(aArea - bArea) > 1) return bArea - aArea;
+    }
+    return evaluateLayer(a.placements, options).centerOffsetMm - evaluateLayer(b.placements, options).centerOffsetMm;
+  });
+  // 单边模板层按“单层件数档位”各保留一个最优变体（最多两档）：
+  // 第一档用于最优解；第二档进入搜索以生成“每层数量下调整档”的次优方案。
+  // 同一档内只留唯一最优结构：上下层覆盖面积必须一致，
+  // 且错层比较器不能在模板层之间制造差异。
+  if (templateApplies) {
+    const picked = [];
+    const seenCounts = new Set();
+    for (const item of sorted) {
+      if (seenCounts.has(item.placements.length)) continue;
+      seenCounts.add(item.placements.length);
+      picked.push(item);
+      if (picked.length >= 2) break;
+    }
+    return picked;
+  }
+  return sorted.slice(0, options.maxCandidates);
 }
 
 function compareState(a, b) {
@@ -963,13 +978,19 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
   };
   const maxLayers = Math.max(0, Math.floor(options.loadHeightMm / options.unitSizeMm.heightMm + EPS));
   const normalStatesByDepth = [[initial]];
+  // 模板档位一致性：单边展示下每个状态从首层起锁定同一模板变体，
+  // 保证整板“每层数量一致”（约束二的覆盖面积一致口径）。
+  const faceTemplateActive = options.faceConstraint.enabled && options.faceConstraint.layout === 'edge-exposure';
+  const templateKey = placements => placements.map(item => `${item.xMm}:${item.zMm}:${item.orientation}`).sort().join('|');
   let states = [initial];
   for (let layerIndex = 0; layerIndex < maxLayers; layerIndex++) {
     const choices = layerOptions(options, layerIndex, 'normal');
     if (!choices.length) break;
     const next = [];
     for (const state of states) {
+      const lockedKey = faceTemplateActive && state.layers.length ? templateKey(state.layers[0]) : null;
       for (const choice of choices) {
+        if (lockedKey && templateKey(choice.placements) !== lockedKey) continue;
         stats.candidateCount = (stats.candidateCount || 0) + 1;
         const candidate = extendState(state, choice, options, true, stats);
         if (candidate) next.push(candidate);
@@ -1032,15 +1053,21 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
   result.topSideLayApplied = Boolean(useSide && best.layers.at(-1)?.some(item => item.posture === 'side-lay'));
   result.topSideLayForced = Boolean(result.topSideLayApplied && forceSideLay);
 
-  // 次优解：在全部到达过的搜索状态里挑“总数次高、且层结构签名与最优不同”的方案，
-  // 供产线作为备选排列。结构签名只看每层件数与是否含侧倒，避免同一排布的平移/微调被误判为备选。
-  const structureSignature = state => state.layers.map(layer => `${layer.length}${layer.some(item => item.posture === 'side-lay') ? 's' : ''}`).join('|');
+  // 次优解定义：正常姿态层的“每层数量”与最优不同（即每层件数下调整档后的另一种
+  // 排法），供产线对比。顶层侧倒层的件数差异不算结构差异——否则“仅顶层少一件”
+  // 的方案会冒充次优。候选来自保留前两档件数的正常层状态。
+  const normalLayerCounts = state => state.layers
+    .filter(layer => !layer.some(item => item.posture === 'side-lay'))
+    .map(layer => layer.length)
+    .join('/');
   const candidatePool = [];
   for (const depthStates of normalStatesByDepth) candidatePool.push(...depthStates);
   candidatePool.push(...sideStates);
-  const bestSignature = structureSignature(best);
+  const bestSignature = normalLayerCounts(best);
   const runnerUp = candidatePool
-    .filter(state => state.layers.length && state !== best && structureSignature(state) !== bestSignature)
+    .filter(state => state.layers.length === best.layers.length
+      && state !== best
+      && normalLayerCounts(state) !== bestSignature)
     .sort(compareSelection)[0] || null;
   result.hasRunnerUp = Boolean(runnerUp);
   if (runnerUp) {

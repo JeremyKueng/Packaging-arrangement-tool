@@ -32,6 +32,24 @@ function structureSig(plan) {
   return plan.layers.map(layer => layer.length + (layer.some(item => item.posture === 'side-lay') ? 's' : '')).join('|');
 }
 
+// 正常姿态层的“每层数量”序列——次优方案的判定口径。
+function normalLayerCounts(plan) {
+  return plan.layers
+    .filter(layer => !layer.some(item => item.posture === 'side-lay'))
+    .map(layer => layer.length)
+    .join('/');
+}
+
+const runnerUpCaseInput = {
+  packageType: 'softpack',
+  unitSizeMm: { lengthMm: 325, widthMm: 180, heightMm: 438 },
+  loadHeightMm: 1300,
+  allowedOrientations: ['A', 'B'],
+  layerStrategy: 'cyclic-interlock',
+  softpackOptions: { cornerProtectorsEnabled: false, topSideLayMode: 'auto' },
+  faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
+};
+
 test('软包默认启用分层规则（内建算法，无需开关）；纸箱与显式关闭回退统一规则', () => {
   const softpackDefaults = normalizePalletOptions({
     packageType: 'softpack',
@@ -125,17 +143,20 @@ test('规则三：软包缺省即生效——每一层其余排至少一排沿�
   }
 });
 
-test('输出次优解：总数次高且层结构与最优不同，缓存命中后仍保留', () => {
+test('次优解定义：同高度下每层数量下调整档的另一种排法（仅顶层侧倒差异不算），缓存命中后仍保留', () => {
   clearPalletLayoutCache();
-  const first = optimizePalletLayout(layerRulesBaseInput);
+  const first = optimizePalletLayout(runnerUpCaseInput);
   assert.equal(first.hasRunnerUp, true);
   const runner = first.runnerUp;
   assert.equal(runner.isRunnerUp, true);
   assert.ok(runner.totalCount <= first.totalCount, '次优总数不应高于最优');
-  assert.notEqual(structureSig(runner), structureSig(first), '层结构签名应与最优不同');
+  // 每层数量必须真的下调整档：正常姿态层的件数序列与最优不同——
+  // “仅顶层侧倒少一件”的方案不属于次优。
+  assert.notEqual(normalLayerCounts(runner), normalLayerCounts(first), '正常层每层数量应与最优不同');
+  assert.equal(runner.layerCount, first.layerCount, '次优应与最优同高度（层数一致）');
   assert.equal(first.placements.length, first.totalCount);
   // 缓存命中路径同样要带出次优解。
-  const cached = optimizePalletLayout(layerRulesBaseInput);
+  const cached = optimizePalletLayout(runnerUpCaseInput);
   assert.equal(cached.debug.cacheHit, true);
   assert.equal(cached.runnerUp.isRunnerUp, true);
   assert.equal(cached.runnerUp.totalCount, runner.totalCount);

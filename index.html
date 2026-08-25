@@ -935,7 +935,7 @@
       if (plan.hasRunnerUp && plan.runnerUp) {
         const runnerCard = document.createElement('div');
         runnerCard.className = 'pallet-candidate';
-        runnerCard.textContent = `次优解 Top 2：${plan.runnerUp.totalCount} 件 · ${plan.runnerUp.layerCount} 层 · 每层 ${plan.runnerUp.itemsPerLayer.join('/')}（结构不同的备选排列）`;
+        runnerCard.textContent = `次优解 Top 2：${plan.runnerUp.totalCount} 件 · ${plan.runnerUp.layerCount} 层 · 每层 ${plan.runnerUp.itemsPerLayer.join('/')}（同高度下每层数量下调整档的备选排法）`;
         ui.palletCandidates.appendChild(runnerCard);
       }
       ui.palletCountTag.textContent = `${plan.totalCount} 件`;
