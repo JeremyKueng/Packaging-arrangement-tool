@@ -12,7 +12,7 @@ import {
   normalizePalletOptions,
 } from './pallet-core.js';
 
-export const PALLET_PRESET_SCHEMA_VERSION = 7;
+export const PALLET_PRESET_SCHEMA_VERSION = 8;
 
 function plain(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -56,6 +56,7 @@ function algorithmInputFromOptions(options) {
     basePattern: [...options.basePattern],
     faceConstraint: { ...options.faceConstraint },
     softpackOptions: { ...options.softpackOptions },
+    layerRules: { ...options.layerRules },
     maxCandidates: options.maxCandidates,
   };
 }
@@ -213,6 +214,7 @@ export function palletDefaults(packageType = 'case') {
     },
     showFaceLabels: true,
     faceConstraint: { enabled: false, palletEdge: 'z-', unitFace: 'long-side', layout: 'auto', scope: 'edge-row' },
+    layerRules: defaultOptions.layerRules,
     placementList: [],
     solution: null,
   };
@@ -244,6 +246,7 @@ export function normalizePalletPreset(record = {}, fallback = palletDefaults(rec
     layerStrategy: inputRecord.layerStrategy ?? base.layerStrategy,
     basePattern: inputRecord.basePattern ?? base.basePattern,
     faceConstraint: inputRecord.faceConstraint ?? base.faceConstraint,
+    layerRules: inputRecord.layerRules ?? base.layerRules,
   };
   if (inputRecord.loadHeightMm != null) optionInput.loadHeightMm = inputRecord.loadHeightMm;
   const options = normalizePalletOptions(optionInput);
@@ -275,6 +278,7 @@ export function normalizePalletPreset(record = {}, fallback = palletDefaults(rec
     basePattern: options.basePattern,
     faceConstraint: options.faceConstraint,
     softpackOptions: options.softpackOptions,
+    layerRules: options.layerRules,
     showFaceLabels: raw.showFaceLabels !== false,
     // 新格式不持久化大型 placement 数组；旧 placementList 仅参与上面的摘要推导。
     placementList: [],

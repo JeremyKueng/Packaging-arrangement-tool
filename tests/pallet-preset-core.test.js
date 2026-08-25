@@ -23,8 +23,8 @@ test('叠板预设保存独立单件尺寸、固定托盘口径与packageType', 
   assert.equal('source' in preset, false);
   assert.equal(preset.loadHeightMm, 1640);
   assert.equal(preset.heightLimitMm, 1800);
-  assert.equal(preset.schemaVersion, 7);
-  assert.equal(preset.algorithmVersion, 'pallet-layout-v2');
+  assert.equal(preset.schemaVersion, 8);
+  assert.equal(preset.algorithmVersion, 'pallet-layout-v3');
   assert.match(preset.solutionId, /^solution:/);
   assert.equal(preset.algorithmInput.unitSizeMm.lengthMm, 700);
   assert.deepEqual(preset.placementList, []);
@@ -115,7 +115,7 @@ test('新格式仅按 algorithmInput 确定性重建输入与 solutionId', () =>
     },
     solution: { totalCount: 17, layerCount: 1, itemsPerLayer: [17], actualLoadHeightMm: 300, totalHeightMm: 460, surfaceUtilization: 1 },
   });
-  assert.equal(a.algorithmVersion, 'pallet-layout-v2');
+  assert.equal(a.algorithmVersion, 'pallet-layout-v3');
   assert.equal(a.solutionId, b.solutionId);
   assert.deepEqual(a.placementList, []);
   assert.equal(a.algorithmInput.loadHeightMm, 1040);

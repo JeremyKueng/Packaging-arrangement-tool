@@ -17,7 +17,10 @@ const EPS = 1e-6;
 // 因此调用方修改 placements / options / debug 不会污染后续调用。容量是有限的 LRU，
 // 避免长期编辑不同箱规时内存无限增长。
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
-export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v2';
+export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v3';
+
+// 分层规则中“第二层模式”的可选值：自由寻优 / 长侧面单边展示 / 短侧面单边展示。
+export const PALLET_SECOND_LAYER_MODES = Object.freeze(['free', 'long-side', 'short-side']);
 
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
@@ -194,6 +197,17 @@ export function normalizePalletOptions(options = {}) {
   const faceLayout = PALLET_FACE_LAYOUTS.includes(face.layout)
     ? face.layout
     : (face.enabled ? 'edge-exposure' : 'auto');
+  // 分层规则（v3 新增，可选）：缺省关闭时行为与 v2 完全一致。
+  const rulesRaw = plain(raw.layerRules) ? raw.layerRules : {};
+  const layerRules = {
+    enabled: Boolean(rulesRaw.enabled),
+    // 规则一：顶层侧倒件相对下一层轮廓的每侧最大悬出量。
+    sideLayMaxOverhangMm: clamp(finite(rulesRaw.sideLayMaxOverhangMm, 10), 0, 100),
+    // 规则二：第二层（自下而上第 2 层）的独立模式。
+    secondLayerMode: PALLET_SECOND_LAYER_MODES.includes(rulesRaw.secondLayerMode) ? rulesRaw.secondLayerMode : 'free',
+    // 规则三：第三层起每层至少一排沿托盘长向剩余 ≥ 该值；长边第一排允许 0 余量。
+    minRowMarginMm: clamp(finite(rulesRaw.minRowMarginMm, 50), 0, 500),
+  };
   const cornerProtection = {
     // 仅为读取旧调用方保留，不作为 v2 保存字段。
     enabled: softpackOptions.cornerProtectorsEnabled,
@@ -219,6 +233,7 @@ export function normalizePalletOptions(options = {}) {
     },
     packageType,
     softpackOptions,
+    layerRules,
     usablePallet,
     // 旧调用方别名；候选逻辑实际只读取 packageType/softpackOptions。
     sourceType: packageType,
@@ -243,6 +258,7 @@ function palletLayoutInputKey(options) {
     faceConstraint: options.faceConstraint,
     packageType: options.packageType,
     softpackOptions: options.softpackOptions,
+    layerRules: options.layerRules,
     maxCandidates: options.maxCandidates,
   });
 }
@@ -586,22 +602,116 @@ function layoutSignature(layer) {
     .join('|');
 }
 
+// ===== 分层规则（v3）辅助 =====
+
+function placementBounds(placements) {
+  return placements.reduce((bounds, item) => ({
+    minX: Math.min(bounds.minX, item.xMm - item.lengthMm / 2),
+    maxX: Math.max(bounds.maxX, item.xMm + item.lengthMm / 2),
+    minZ: Math.min(bounds.minZ, item.zMm - item.widthMm / 2),
+    maxZ: Math.max(bounds.maxZ, item.zMm + item.widthMm / 2),
+  }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+}
+
+// 规则一：上层相对下一层轮廓的每侧悬出量不得超过上限。
+function sideLayOverhangWithinLimit(upperPlacements, lowerLayer, limitMm) {
+  if (!lowerLayer?.length || !upperPlacements.length) return true;
+  const lower = placementBounds(lowerLayer);
+  const upper = placementBounds(upperPlacements);
+  const overhang = Math.max(
+    lower.minX - upper.minX,
+    upper.maxX - lower.maxX,
+    lower.minZ - upper.minZ,
+    upper.maxZ - lower.maxZ,
+    0,
+  );
+  return overhang <= limitMm + EPS;
+}
+
+// 把一层单件聚成“排”：addRowLayout 与单边模板生成的候选里，
+// 同一排的单件共享同一条带坐标；唯一值较少的方向即排的叠进方向。
+function placementRows(placements) {
+  if (!placements.length) return [];
+  const uniqueX = new Set(placements.map(item => item.xMm.toFixed(3)));
+  const uniqueZ = new Set(placements.map(item => item.zMm.toFixed(3)));
+  const byZ = uniqueZ.size <= uniqueX.size;
+  const groups = new Map();
+  for (const item of placements) {
+    const key = byZ ? item.zMm.toFixed(3) : item.xMm.toFixed(3);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return [...groups.values()];
+}
+
+// 规则三：长边第一排（最贴近托盘长边的排）允许 0 余量；
+// 其余排中至少要有一排沿托盘长向的剩余长度 ≥ 设定值。
+// 只有一排时视为满足（不存在“后面的摆放排”，条件空真）。
+function rowMarginRuleSatisfied(placements, options) {
+  const pallet = options.usablePallet || options.pallet;
+  const report = palletRowMarginReport(placements);
+  return report.satisfiedFor(options.layerRules.minRowMarginMm, pallet.lengthMm);
+}
+
+// 供分层规则校验、界面说明与回归测试使用：把一层拆成排并给出每排沿托盘长向的占用。
+export function palletRowMarginReport(placements) {
+  const rows = placementRows(placements).map(items => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let edgeDistance = 0;
+    for (const item of items) {
+      minX = Math.min(minX, item.xMm - item.lengthMm / 2);
+      maxX = Math.max(maxX, item.xMm + item.lengthMm / 2);
+      edgeDistance += Math.abs(item.zMm);
+    }
+    // span 为该排沿托盘长向的实际占用；edgeDistance 取均值代表离长边距离。
+    return { spanLengthMm: maxX - minX, edgeDistance: edgeDistance / items.length };
+  });
+  rows.sort((a, b) => b.edgeDistance - a.edgeDistance);
+  const restRows = rows.slice(1);
+  return {
+    rows,
+    // 调用方传入阈值后判断：其余排中至少一排剩余 ≥ 阈值；只有一排时空真。
+    satisfiedFor(thresholdMm, usableLengthMm) {
+      if (rows.length <= 1) return true;
+      return restRows.some(row => usableLengthMm - row.spanLengthMm >= thresholdMm - EPS);
+    },
+  };
+}
+
 function layerOptions(options, layerIndex, posture = 'normal') {
-  const patterns = patternVariants(options, layerIndex);
-  const isEdgeTemplate = options.faceConstraint.enabled && options.faceConstraint.layout === 'edge-exposure';
+  // 分层规则二：第二层可配置独立的单边展示模式，覆盖全局展示约束。
+  // 仅作用于正常姿态层；侧倒层不受该规则约束（与展示豁免口径一致）。
+  let effective = options;
+  if (options.layerRules?.enabled && posture === 'normal' && layerIndex === 1) {
+    const mode = options.layerRules.secondLayerMode;
+    if (mode !== 'free') {
+      effective = {
+        ...options,
+        faceConstraint: { ...options.faceConstraint, enabled: true, layout: 'edge-exposure', unitFace: mode },
+      };
+    }
+  }
+  const patterns = patternVariants(effective, layerIndex);
+  const isEdgeTemplate = effective.faceConstraint.enabled && effective.faceConstraint.layout === 'edge-exposure';
   // 单边展示约束只约束正常姿态层。侧倒（H 面向下）时长侧面必然朝上，与
   // “L 面朝托盘长边”在几何上互斥；若把约束套到侧倒层，候选会被过滤为空、
   // 极限侧倒静默失效。因此侧倒层豁免该约束，展示面由下部正常姿态层保证。
   const exemptFromFaceConstraint = posture === 'side-lay';
   const templateApplies = isEdgeTemplate && !exemptFromFaceConstraint;
   const candidates = templateApplies
-    ? edgeExposureLayouts(options, posture)
+    ? edgeExposureLayouts(effective, posture)
     : [
-        ...sequenceCandidates(options, 'z', posture, !exemptFromFaceConstraint),
-        ...sequenceCandidates(options, 'x', posture, !exemptFromFaceConstraint),
+        ...sequenceCandidates(effective, 'z', posture, !exemptFromFaceConstraint),
+        ...sequenceCandidates(effective, 'x', posture, !exemptFromFaceConstraint),
       ];
   const requiredPattern = patterns.join('');
-  const valid = candidates.filter(item => placementsValid(item.placements, options.usablePallet || options.pallet, options.overhangMm));
+  let valid = candidates.filter(item => placementsValid(item.placements, effective.usablePallet || effective.pallet, effective.overhangMm));
+  // 分层规则三：第三层起每层至少一排沿托盘长向剩余 ≥ 设定值（硬约束，
+  // 先于策略筛选和件数择优执行，保证“不牺牲合格候选”）。
+  if (effective.layerRules?.enabled && layerIndex >= 2) {
+    valid = valid.filter(item => rowMarginRuleSatisfied(item.placements, effective));
+  }
   const filtered = valid.filter(item => {
     // 单边模板的 A/B 是同一层内部的固定结构；“全部同向”在此表示各层复用该模板，
     // 不能再用“所有单件均为 A/B”把它误过滤掉。
@@ -664,6 +774,11 @@ function extendState(state, choice, options, enforceSupport = true, stats = null
   }));
   const support = layerIndex ? supportRatio(state.layers[layerIndex - 1], layer) : { min: 1, average: 1 };
   if (enforceSupport && layerIndex && (options.layerStrategy === 'cyclic-interlock' || options.layerStrategy === 'optimize') && support.min < .75) return reject();
+  // 分层规则一：顶层侧倒件相对下一层轮廓的每侧悬出量不得超过设定值。
+  if (options.layerRules?.enabled && choice.posture === 'side-lay' && layerIndex
+    && !sideLayOverhangWithinLimit(layer, state.layers[layerIndex - 1], options.layerRules.sideLayMaxOverhangMm)) {
+    return reject();
+  }
   const all = state.placements.concat(layer);
   const cx = all.reduce((sum, item) => sum + item.xMm, 0) / Math.max(1, all.length);
   const cz = all.reduce((sum, item) => sum + item.zMm, 0) / Math.max(1, all.length);
@@ -792,9 +907,9 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
   // 侧倒只对软包开放。枚举“若干正常层 + 一个顶层侧倒层”，既覆盖追加一层，也覆盖替换正常顶层。
   const sideLayEnabled = options.packageType === 'softpack' && options.softpackOptions.allowTopSideLay;
   const forceSideLay = sideLayEnabled && options.softpackOptions.topSideLayMode === 'force';
+  const sideStates = [];
   let sideBest = null;
   if (sideLayEnabled) {
-    const sideCandidates = [];
     for (const depthStates of normalStatesByDepth) {
       for (const state of depthStates) {
         const choices = layerOptions(options, state.layers.length, 'side-lay');
@@ -807,12 +922,12 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
             continue;
           }
           const candidate = extendState(state, choice, options, false, stats);
-          if (candidate) sideCandidates.push(candidate);
+          if (candidate) sideStates.push(candidate);
         }
       }
     }
-    sideCandidates.sort(compareSelection);
-    sideBest = sideCandidates[0] || null;
+    sideStates.sort(compareSelection);
+    sideBest = sideStates[0] || null;
   }
 
   // 侧倒只有在件数更优，或件数相同但总高更低时才替换正常方案。
@@ -838,6 +953,23 @@ function optimizePalletLayoutInternal(rawOptions = {}, stats = {}) {
   result.topSideLayMode = options.softpackOptions.topSideLayMode;
   result.topSideLayApplied = Boolean(useSide && best.layers.at(-1)?.some(item => item.posture === 'side-lay'));
   result.topSideLayForced = Boolean(result.topSideLayApplied && forceSideLay);
+
+  // 次优解：在全部到达过的搜索状态里挑“总数次高、且层结构签名与最优不同”的方案，
+  // 供产线作为备选排列。结构签名只看每层件数与是否含侧倒，避免同一排布的平移/微调被误判为备选。
+  const structureSignature = state => state.layers.map(layer => `${layer.length}${layer.some(item => item.posture === 'side-lay') ? 's' : ''}`).join('|');
+  const candidatePool = [];
+  for (const depthStates of normalStatesByDepth) candidatePool.push(...depthStates);
+  candidatePool.push(...sideStates);
+  const bestSignature = structureSignature(best);
+  const runnerUp = candidatePool
+    .filter(state => state.layers.length && state !== best && structureSignature(state) !== bestSignature)
+    .sort(compareSelection)[0] || null;
+  result.hasRunnerUp = Boolean(runnerUp);
+  if (runnerUp) {
+    const runnerResult = resultFromState(runnerUp, options);
+    runnerResult.isRunnerUp = true;
+    result.runnerUp = runnerResult;
+  }
   return result;
 }
 

@@ -446,6 +446,15 @@
           </div>
           <div class="field"><label for="palletFaceConstraintEnabled">指定托盘长边展示面</label><select id="palletFaceConstraintEnabled"><option value="off">不限制</option><option value="long-side">长侧面·单边展示（自动组合）</option><option value="short-side">短侧面·单边展示（自动组合）</option></select></div>
           <div class="direction-note">单边展示仅约束托盘其中一条长边：展示边至少保留一排目标朝向，算法自动枚举正向排数；其余区域旋转 90° 填充，不会沿托盘中线拆分。件数和正向排数均随单件尺寸、护角损耗和托盘边界动态计算。</div>
+          <div class="field"><label for="palletLayerRulesEnabled">分层规则模式</label><select id="palletLayerRulesEnabled"><option value="off">关闭（所有层统一规则）</option><option value="on">启用（第1/2/3层独立规则）</option></select></div>
+          <div id="palletLayerRuleOptions" hidden>
+            <div class="grid-2">
+              <div class="field"><label for="palletSideLayMaxOverhangMm">侧倒最大出边 mm</label><input id="palletSideLayMaxOverhangMm" type="number" min="0" max="100" value="10"></div>
+              <div class="field"><label for="palletMinRowMarginMm">行余量下限 mm</label><input id="palletMinRowMarginMm" type="number" min="0" max="500" step="5" value="50"></div>
+            </div>
+            <div class="field"><label for="palletSecondLayerMode">第二层码放模式</label><select id="palletSecondLayerMode"><option value="free">无限制</option><option value="long-side">长侧面·单边展示</option><option value="short-side">短侧面·单边展示</option></select></div>
+            <div class="direction-note">规则一：顶层侧倒件相对下一层轮廓出边 ≤ 设定值；规则二：第二层可指定无限制或单边展示；规则三：第三层起每层长边第一排允许贴边，其余排至少一排沿托盘长向剩余 ≥ 行余量下限。结果同时输出最优解与结构不同的次优解。</div>
+          </div>
           <div class="field"><label for="palletShowFaceLabels">L/W 面标识</label><select id="palletShowFaceLabels"><option value="on">显示</option><option value="off">隐藏</option></select></div>
           <div class="definition-card" id="palletDefinitionCard" aria-live="polite"></div>
           <div class="pallet-candidates" id="palletCandidates"></div>
@@ -817,6 +826,12 @@
         basePattern: parsePalletPattern(ui.palletBasePattern.value),
         allowedOrientations: ['A', 'B'],
         faceConstraint: palletFaceConstraintFromUi(),
+        layerRules: {
+          enabled: ui.palletLayerRulesEnabled.value === 'on',
+          sideLayMaxOverhangMm: ui.palletSideLayMaxOverhangMm.value,
+          secondLayerMode: ui.palletSecondLayerMode.value,
+          minRowMarginMm: ui.palletMinRowMarginMm.value,
+        },
         softpackOptions: {
           cornerProtectorsEnabled: packageType === 'softpack' && ui.palletCornerProtectors.value === 'on',
           cornerLossLengthMm: ui.palletCornerLossLengthMm.value,
@@ -915,14 +930,21 @@
       lines.filter(Boolean).forEach(line => { const p = document.createElement('p'); p.textContent = line; ui.palletDefinitionCard.appendChild(p); });
       const candidate = document.createElement('div');
       candidate.className = 'pallet-candidate';
-      candidate.textContent = `Top 1：${plan.totalCount} 件 · ${plan.layerCount} 层 · ${plan.layoutLabel || '自动排样'}`;
+      candidate.textContent = `最优解 Top 1：${plan.totalCount} 件 · ${plan.layerCount} 层 · 每层 ${plan.itemsPerLayer.join('/')} · ${plan.layoutLabel || '自动排样'}`;
       ui.palletCandidates.appendChild(candidate);
+      if (plan.hasRunnerUp && plan.runnerUp) {
+        const runnerCard = document.createElement('div');
+        runnerCard.className = 'pallet-candidate';
+        runnerCard.textContent = `次优解 Top 2：${plan.runnerUp.totalCount} 件 · ${plan.runnerUp.layerCount} 层 · 每层 ${plan.runnerUp.itemsPerLayer.join('/')}（结构不同的备选排列）`;
+        ui.palletCandidates.appendChild(runnerCard);
+      }
       ui.palletCountTag.textContent = `${plan.totalCount} 件`;
     }
 
     function syncPalletSourceUi() {
       const isSoftpack = ui.palletPackageType.value === 'softpack';
       ui.palletSoftpackOptions.hidden = !isSoftpack;
+      ui.palletLayerRuleOptions.hidden = ui.palletLayerRulesEnabled.value !== 'on';
       ui.palletSourceSummary.textContent = isSoftpack
         ? '叠板形态：软包。单件尺寸与上游工段解耦；可人工设置护角损耗与顶层 H 面侧倒。'
         : '叠板形态：纸箱。单件尺寸与上游工段解耦，按独立箱规优化。';
@@ -956,6 +978,10 @@
       ui.palletLayerStrategy.value = values.layerStrategy;
       ui.palletBasePattern.value = values.basePattern.join('') || 'AAB';
       ui.palletFaceConstraintEnabled.value = palletFaceConstraintUiValue(values.faceConstraint);
+      ui.palletLayerRulesEnabled.value = values.layerRules?.enabled ? 'on' : 'off';
+      ui.palletSideLayMaxOverhangMm.value = values.layerRules?.sideLayMaxOverhangMm ?? 10;
+      ui.palletMinRowMarginMm.value = values.layerRules?.minRowMarginMm ?? 50;
+      ui.palletSecondLayerMode.value = values.layerRules?.secondLayerMode ?? 'free';
       syncPalletSourceUi();
       palletPlan = optimizePalletLayout(palletOptionsFromUi());
       renderPalletPlan(palletPlan);
@@ -1046,7 +1072,7 @@
       productLengthMm: $('productLengthMm'), productWidthMm: $('productWidthMm'), productHeightMm: $('productHeightMm'),
       productDiameterMm: $('productDiameterMm'), productAxialWidthMm: $('productAxialWidthMm'), productCoreDiameterMm: $('productCoreDiameterMm'), productFlattenRatePct: $('productFlattenRatePct'), rollFlattenField: $('rollFlattenField'), rollFlattenMeta: $('rollFlattenMeta'),
       productSizeActions: $('productSizeActions'), resetProductSizeBtn: $('resetProductSizeBtn'), saveProductSizeBtn: $('saveProductSizeBtn'), productSizeStatus: $('productSizeStatus'),
-      palletSourceSummary: $('palletSourceSummary'), palletPackageType: $('palletPackageType'), palletSoftpackOptions: $('palletSoftpackOptions'), palletCornerProtectors: $('palletCornerProtectors'), palletCornerLossLengthMm: $('palletCornerLossLengthMm'), palletCornerLossWidthMm: $('palletCornerLossWidthMm'), palletAllowTopSideLay: $('palletAllowTopSideLay'), palletShowFaceLabels: $('palletShowFaceLabels'), palletUnitLengthMm: $('palletUnitLengthMm'), palletUnitWidthMm: $('palletUnitWidthMm'), palletUnitHeightMm: $('palletUnitHeightMm'), palletLoadHeightMm: $('palletLoadHeightMm'), palletLayerStrategy: $('palletLayerStrategy'), palletBasePattern: $('palletBasePattern'), palletFaceConstraintEnabled: $('palletFaceConstraintEnabled'), palletDefinitionCard: $('palletDefinitionCard'), palletCandidates: $('palletCandidates'), palletPresetName: $('palletPresetName'), palletStatus: $('palletStatus'), palletCountTag: $('palletCountTag'), savePalletPresetBtn: $('savePalletPresetBtn'), newPalletPresetBtn: $('newPalletPresetBtn')
+      palletSourceSummary: $('palletSourceSummary'), palletPackageType: $('palletPackageType'), palletSoftpackOptions: $('palletSoftpackOptions'), palletCornerProtectors: $('palletCornerProtectors'), palletCornerLossLengthMm: $('palletCornerLossLengthMm'), palletCornerLossWidthMm: $('palletCornerLossWidthMm'), palletAllowTopSideLay: $('palletAllowTopSideLay'), palletShowFaceLabels: $('palletShowFaceLabels'), palletUnitLengthMm: $('palletUnitLengthMm'), palletUnitWidthMm: $('palletUnitWidthMm'), palletUnitHeightMm: $('palletUnitHeightMm'), palletLoadHeightMm: $('palletLoadHeightMm'), palletLayerStrategy: $('palletLayerStrategy'), palletBasePattern: $('palletBasePattern'), palletFaceConstraintEnabled: $('palletFaceConstraintEnabled'), palletLayerRulesEnabled: $('palletLayerRulesEnabled'), palletLayerRuleOptions: $('palletLayerRuleOptions'), palletSideLayMaxOverhangMm: $('palletSideLayMaxOverhangMm'), palletMinRowMarginMm: $('palletMinRowMarginMm'), palletSecondLayerMode: $('palletSecondLayerMode'), palletDefinitionCard: $('palletDefinitionCard'), palletCandidates: $('palletCandidates'), palletPresetName: $('palletPresetName'), palletStatus: $('palletStatus'), palletCountTag: $('palletCountTag'), savePalletPresetBtn: $('savePalletPresetBtn'), newPalletPresetBtn: $('newPalletPresetBtn')
     };
 
     Object.entries(catalog).forEach(([key, value]) => ui.category.add(new Option(value.name, key)));
@@ -4382,6 +4408,10 @@
       ui.palletLayerStrategy.value = s.layerStrategy || 'cyclic-interlock';
       ui.palletBasePattern.value = (s.basePattern || ['A','A','B']).join('');
       ui.palletFaceConstraintEnabled.value = palletFaceConstraintUiValue(s.faceConstraint);
+      ui.palletLayerRulesEnabled.value = palletDraft.layerRules?.enabled ? 'on' : 'off';
+      ui.palletSideLayMaxOverhangMm.value = palletDraft.layerRules?.sideLayMaxOverhangMm ?? 10;
+      ui.palletMinRowMarginMm.value = palletDraft.layerRules?.minRowMarginMm ?? 50;
+      ui.palletSecondLayerMode.value = palletDraft.layerRules?.secondLayerMode ?? 'free';
       syncPalletSourceUi();
       palletPlan = optimizePalletLayout(palletOptionsFromUi());
       syncStagePanels(); syncBagControls(); rebuild(false); setPerspectiveInstant();
@@ -5686,8 +5716,8 @@
       palletOptimizePending = false;
       runPalletOptimizer();
     };
-    const palletDimensionInputs = [ui.palletUnitLengthMm, ui.palletUnitWidthMm, ui.palletUnitHeightMm, ui.palletLoadHeightMm, ui.palletCornerLossLengthMm, ui.palletCornerLossWidthMm];
-    const palletChoiceInputs = [ui.palletPackageType, ui.palletCornerProtectors, ui.palletAllowTopSideLay, ui.palletShowFaceLabels, ui.palletLayerStrategy, ui.palletBasePattern, ui.palletFaceConstraintEnabled];
+    const palletDimensionInputs = [ui.palletUnitLengthMm, ui.palletUnitWidthMm, ui.palletUnitHeightMm, ui.palletLoadHeightMm, ui.palletCornerLossLengthMm, ui.palletCornerLossWidthMm, ui.palletSideLayMaxOverhangMm, ui.palletMinRowMarginMm];
+    const palletChoiceInputs = [ui.palletPackageType, ui.palletCornerProtectors, ui.palletAllowTopSideLay, ui.palletShowFaceLabels, ui.palletLayerStrategy, ui.palletBasePattern, ui.palletFaceConstraintEnabled, ui.palletLayerRulesEnabled, ui.palletSecondLayerMode];
     palletDimensionInputs.forEach(input => {
       input.addEventListener('input', () => {
         if (!isPallet()) return;
