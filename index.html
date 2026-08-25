@@ -475,6 +475,7 @@
           <button class="secondary" id="batchPdfBtn">批量 PDF…</button>
         </div>
         <button class="stage-action-link" id="dataManageBtn" type="button">预设数据管理…</button>
+        <div class="field"><label for="lightingToggle">全局光影</label><select id="lightingToggle"><option value="on">开 · 阴影立体</option><option value="off">关 · 扁平无影</option></select></div>
         <div class="export-status" id="batchExportStatus" role="status" aria-live="polite"></div>
       </footer>
     </aside>
@@ -1104,6 +1105,7 @@
       outerProductToggleRow: $('outerProductToggleRow'), outerLabelToggleRow: $('outerLabelToggleRow'), outerProductToggleText: $('outerProductToggleText'),
       outerHighlightBtn: $('outerHighlightBtn'),
       outerHighlightGranuleBtn: $('outerHighlightGranuleBtn'),
+      lightingToggle: $('lightingToggle'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
@@ -1196,12 +1198,26 @@
     }
     // 旋转方向偏好按用户隔离，延后到 initApp 中加载（见文件末尾 initApp）。
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8fa4b8, 2.1));
-    const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(5, 10, 8); key.castShadow = true; key.shadow.mapSize.set(2048,2048); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa8c8ff, 1.2); fill.position.set(-7, 4, -5); scene.add(fill);
+    // 全局光影两档：on=半球光+主/补方向光+地面投影（默认）；off=仅均匀半球光，无方向光、无阴影，画面扁平。
+    const LIGHTING_PRESETS = {
+      on:  { hemi: 2.1, key: 3.2, fill: 1.2 },
+      off: { hemi: 2.7, key: 0,   fill: 0   }
+    };
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8fa4b8, LIGHTING_PRESETS.on.hemi); scene.add(hemi);
+    const key = new THREE.DirectionalLight(0xffffff, LIGHTING_PRESETS.on.key); key.position.set(5, 10, 8); key.castShadow = true; key.shadow.mapSize.set(2048,2048); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xa8c8ff, LIGHTING_PRESETS.on.fill); fill.position.set(-7, 4, -5); scene.add(fill);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(80,80), new THREE.ShadowMaterial({color:0x38516c, opacity:.13}));
     floor.rotation.x = -Math.PI/2; floor.position.y = -.7; floor.receiveShadow = true; scene.add(floor);
     const grid = new THREE.GridHelper(36, 36, 0x9fb1c2, 0xcbd6e1); grid.position.y = -.69; grid.material.opacity = .22; grid.material.transparent = true; scene.add(grid);
+
+    // 应用当前光影档位；导出 PNG/PDF 复用同一场景灯光，自动跟随。
+    let lightingEffects = true;
+    function applyLightingEffects() {
+      const preset = LIGHTING_PRESETS[lightingEffects ? 'on' : 'off'];
+      hemi.intensity = preset.hemi; key.intensity = preset.key; fill.intensity = preset.fill;
+      key.castShadow = lightingEffects;
+      floor.receiveShadow = lightingEffects;
+    }
 
     let productGroup = new THREE.Group(); scene.add(productGroup);
     let envelope = null;
@@ -4253,6 +4269,7 @@
         rows:ui.rows.value,cols:ui.cols.value,layers:ui.layers.value,gap:ui.gap.value,envelope:ui.envelope.checked,
         handleSide:ui.handleSide.value,autoRotate:ui.autoRotate.checked,mode,presetDirty,showOuterProducts,showOuterLabels,caseMouthOpen,caseXrayEnabled,showCartonName,
         showOuterHighlight,outerHighlightMode,outerHighlightTarget:outerHighlightTarget?{...outerHighlightTarget}:null,
+        lightingEffects,
         packagingLevel,outerPreset:ui.outerPreset.value,outerPresetName:ui.outerPresetName.value,outerUnit:ui.outerUnit.value,
         outerRows:ui.outerRows.value,outerCols:ui.outerCols.value,outerLayers:ui.outerLayers.value,outerSpacing:ui.outerSpacing.value,outerMargin:ui.outerMargin.value,
         outerLoadFace:ui.outerLoadFace.value,
@@ -4306,6 +4323,9 @@
       showCartonName = typeof state.showCartonName === 'boolean' ? state.showCartonName : true;
       showOuterHighlight = Boolean(state.showOuterHighlight);
       outerHighlightMode = state.outerHighlightMode === 'granule' ? 'granule' : 'shell';
+      lightingEffects = typeof state.lightingEffects === 'boolean' ? state.lightingEffects : true;
+      ui.lightingToggle.value = lightingEffects ? 'on' : 'off';
+      applyLightingEffects();
       const t = state.outerHighlightTarget;
       outerHighlightTarget = t && [t.x,t.z,t.y].every(v => Number.isInteger(v) && v >= 0) ? { ...t } : null;
       if (isPallet()) {
@@ -5964,6 +5984,12 @@
     }
     ui.outerHighlightBtn.addEventListener('click', () => toggleOuterHighlight('shell'));
     ui.outerHighlightGranuleBtn.addEventListener('click', () => toggleOuterHighlight('granule'));
+    // 全局光影开关：只切灯光档位，不重建场景；导出 PNG/PDF 复用同一灯光，自动跟随。
+    ui.lightingToggle.addEventListener('change', () => {
+      lightingEffects = ui.lightingToggle.value !== 'off';
+      applyLightingEffects();
+      requestRender();
+    });
     // 点击切换突出目标：区分拖拽（位移或时长超阈值）与点击，避免环绕旋转误选。
     renderer.domElement.addEventListener('pointerdown', event => {
       unitPickDown = { x:event.clientX, y:event.clientY, at:performance.now() };
