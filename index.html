@@ -133,6 +133,10 @@
     .preset-status[data-tone="warn"] { color: #b15c08; }
     .preset-status[data-tone="error"] { color: #b42318; }
     .definition-card { margin-top: 10px; padding: 10px 11px; border: 1px solid #d8e4f1; border-radius: 9px; background: #f6f9fd; color: #536077; font-size: 11px; line-height: 1.55; }
+    .pallet-candidates { margin-top: 8px; display: grid; gap: 6px; }
+    .pallet-candidate { padding: 7px 9px; border: 1px solid #d8e4f1; border-radius: 8px; background: #fff; color: #31435e; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .pallet-candidate:hover { border-color: var(--blue); }
+    .pallet-candidate[data-active="1"] { border-color: var(--blue); background: #eef5ff; color: var(--blue-strong); box-shadow: inset 3px 0 0 var(--blue); }
     .definition-card strong { display: block; margin-bottom: 3px; color: #1f4f86; font-size: 11px; }
     .definition-card p { margin: 2px 0; }
     .export-status { min-height: 17px; margin-top: 8px; color: #708096; font-size: 11px; line-height: 1.45; }
@@ -928,17 +932,40 @@
           : '',
       ];
       lines.filter(Boolean).forEach(line => { const p = document.createElement('p'); p.textContent = line; ui.palletDefinitionCard.appendChild(p); });
-      const candidate = document.createElement('div');
-      candidate.className = 'pallet-candidate';
-      candidate.textContent = `最优解 Top 1：${plan.totalCount} 件 · ${plan.layerCount} 层 · 每层 ${plan.itemsPerLayer.join('/')} · ${plan.layoutLabel || '自动排样'}`;
-      ui.palletCandidates.appendChild(candidate);
+      const bestCard = document.createElement('div');
+      bestCard.className = 'pallet-candidate';
+      bestCard.dataset.mode = 'best';
+      bestCard.textContent = `最优解 Top 1：${plan.totalCount} 件 · ${plan.layerCount} 层 · 每层 ${plan.itemsPerLayer.join('/')} · ${plan.layoutLabel || '自动排样'}（点击查看 3D）`;
+      bestCard.addEventListener('click', () => switchPalletView('best'));
+      ui.palletCandidates.appendChild(bestCard);
       if (plan.hasRunnerUp && plan.runnerUp) {
         const runnerCard = document.createElement('div');
         runnerCard.className = 'pallet-candidate';
-        runnerCard.textContent = `次优解 Top 2：${plan.runnerUp.totalCount} 件 · ${plan.runnerUp.layerCount} 层 · 每层 ${plan.runnerUp.itemsPerLayer.join('/')}（同高度下每层数量下调整档的备选排法）`;
+        runnerCard.dataset.mode = 'runner';
+        runnerCard.textContent = `次优解 Top 2：${plan.runnerUp.totalCount} 件 · ${plan.runnerUp.layerCount} 层 · 每层 ${plan.runnerUp.itemsPerLayer.join('/')}（同高度下每层数量下调整档的备选排法，点击查看 3D）`;
+        runnerCard.addEventListener('click', () => switchPalletView('runner'));
         ui.palletCandidates.appendChild(runnerCard);
       }
+      refreshPalletCandidateActive();
       ui.palletCountTag.textContent = `${plan.totalCount} 件`;
+    }
+
+    // 切换 3D 场景查看最优/次优方案：只换几何渲染，不改变 palletPlan 本身
+    // （保存预设、指标板等仍以最优解为口径）。
+    function switchPalletView(mode) {
+      if (mode !== 'best' && mode !== 'runner') return;
+      if (mode === 'runner' && !(palletPlan?.ok && palletPlan.hasRunnerUp && palletPlan.runnerUp)) return;
+      if (palletViewMode === mode) return;
+      palletViewMode = mode;
+      refreshPalletCandidateActive();
+      rebuild(false);
+    }
+
+    function refreshPalletCandidateActive() {
+      if (!ui.palletCandidates) return;
+      ui.palletCandidates.querySelectorAll('.pallet-candidate').forEach(card => {
+        card.dataset.active = card.dataset.mode === palletViewMode ? '1' : '';
+      });
     }
 
     function syncPalletSourceUi() {
@@ -953,6 +980,7 @@
       if (!isPallet()) return;
       const options = palletOptionsFromUi();
       palletPlan = optimizePalletLayout(options);
+      palletViewMode = 'best';
       palletDraft = readPalletForm();
       renderPalletPlan(palletPlan);
       syncPalletSourceUi();
@@ -981,6 +1009,7 @@
       ui.palletMinRowMarginMm.value = values.layerRules?.minRowMarginMm ?? 50;
       syncPalletSourceUi();
       palletPlan = optimizePalletLayout(palletOptionsFromUi());
+      palletViewMode = 'best';
       renderPalletPlan(palletPlan);
       setPalletStatus(values.id === 'temporary' ? '当前为叠板临时方案；可保存为业务方案。' : '已加载已保存叠板方案。');
     }
@@ -1214,6 +1243,8 @@
     let palletDraft = palletDefaults('case');
     let palletSelection = 'temporary';
     let palletPlan = null;
+    // 叠板 3D 当前查看的方案：'best'=最优解 Top 1，'runner'=次优解 Top 2。
+    let palletViewMode = 'best';
 
     function isMidpack() {
       return packagingLevel === 'midpack';
@@ -3448,9 +3479,15 @@
 
     // 叠板场景：托盘与 placement list 独立建模，不复用大包/装箱 rows/cols/layers 容器逻辑。
     function rebuildPallet() {
-      const plan = palletPlan || optimizePalletLayout(palletOptionsFromUi());
-      palletPlan = plan;
-      updatePalletMetricBoard(plan);
+      if (!palletPlan) palletPlan = optimizePalletLayout(palletOptionsFromUi());
+      // 次优查看模式只切换 3D 几何；指标板与保存口径仍以最优解（palletPlan）为准。
+      const showRunner = palletViewMode === 'runner'
+        && palletPlan.ok && palletPlan.hasRunnerUp && palletPlan.runnerUp;
+      const plan = showRunner ? palletPlan.runnerUp : palletPlan;
+      updatePalletMetricBoard(palletPlan);
+      setPalletStatus(showRunner
+        ? `当前 3D 显示：次优解 Top 2（${plan.totalCount} 件，每层 ${plan.itemsPerLayer.join('/')}）。点击“最优解 Top 1”卡片切回最优方案。`
+        : '', showRunner ? 'warn' : '');
       const scale = SCENE_UNITS_PER_MM;
       const group = new THREE.Group();
       const palletLength = PALLET_SIZE_MM.length * scale;
@@ -4409,6 +4446,7 @@
       ui.palletMinRowMarginMm.value = palletDraft.layerRules?.minRowMarginMm ?? 50;
       syncPalletSourceUi();
       palletPlan = optimizePalletLayout(palletOptionsFromUi());
+      palletViewMode = 'best';
       syncStagePanels(); syncBagControls(); rebuild(false); setPerspectiveInstant();
       return true;
     }
