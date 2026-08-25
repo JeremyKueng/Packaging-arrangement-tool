@@ -472,6 +472,19 @@ function edgeExposureLayouts(options, posture = 'normal') {
         for (const xMm of centeredPositions(columns, fillSize.lengthMm)) placements.push({ xMm, zMm, ...fillSize });
       }
       if (!placementsValid(placements, pallet, options.overhangMm) || !normalizeEdgeConstraint(placements, options)) continue;
+      // 整体居中：模板块沿托盘宽度方向居中放置，不贴死展示边。
+      // 这样各层轮廓关于托盘中线对称，顶层侧倒无需偏移即可对齐；
+      // 展示排仍位于同一侧、保持目标朝向，展示语义不变。
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const item of placements) {
+        minZ = Math.min(minZ, item.zMm - item.widthMm / 2);
+        maxZ = Math.max(maxZ, item.zMm + item.widthMm / 2);
+      }
+      const dzCenter = -(minZ + maxZ) / 2;
+      if (Math.abs(dzCenter) > EPS) {
+        for (const item of placements) item.zMm += dzCenter;
+      }
       if (wantMarginMm > 0 && !rowMarginRuleSatisfied(placements, options)) continue;
       output.push({
         placements,

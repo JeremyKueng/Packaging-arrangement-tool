@@ -923,6 +923,9 @@
               ? '顶层侧倒：当前可摆放高度不足，无法生成 H 面向下示例。'
               : '',
         `稳定性：${plan.stability.boundaryValid && plan.stability.overlapFree && plan.stability.supportValid && plan.stability.centerValid ? '通过' : '需复核'}。`,
+        plan.hasRunnerUp && plan.runnerUp
+          ? `次优方案（备选）：${plan.runnerUp.totalCount} 件，每层 ${plan.runnerUp.itemsPerLayer.join('/')}，${plan.runnerUp.layerCount} 层。`
+          : '',
       ];
       lines.filter(Boolean).forEach(line => { const p = document.createElement('p'); p.textContent = line; ui.palletDefinitionCard.appendChild(p); });
       const candidate = document.createElement('div');

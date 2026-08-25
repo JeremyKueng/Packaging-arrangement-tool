@@ -280,7 +280,10 @@ test('指定一条长边展示面动态枚举正向排数：400×165 时优选17
   const innerFill = layer.filter(item => item.orientation === 'B');
   assert.equal(edgeBand.length, 3);
   assert.equal(innerFill.length, 14);
-  assert.ok(edgeBand.every(item => Math.abs(item.zMm + 417.5) < 1e-6), '展示排必须完整贴 z- 长边');
+  const layerMinZ = Math.min(...layer.map(item => item.zMm - item.widthMm / 2));
+  const layerMaxZ = Math.max(...layer.map(item => item.zMm + item.widthMm / 2));
+  assert.ok(Math.abs(layerMinZ + layerMaxZ) < 1e-6, '展示层整体应居中于托盘宽度方向，而不是贴边');
+  assert.ok(edgeBand.every(item => Math.abs(item.zMm - item.widthMm / 2 - layerMinZ) < 1e-6), '展示排必须位于整块的最外侧（z- 一侧）');
   assert.ok(edgeBand.every(item => item.faceByWorldAxis.z === 'L'), '指定长边实际露出面必须为 L，不能只用姿态 A 代替业务面');
   assert.ok(innerFill.every(item => item.zMm > edgeBand[0].zMm), '旋转填充必须位于展示排内侧，而不是沿中线分割');
   assertLayerGeometry(result);
@@ -294,8 +297,10 @@ test('指定短侧面时按实际 W 面校验指定边，而不是硬编码姿�
     faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'short-side', layout: 'edge-exposure' },
   });
   assert.equal(result.ok, true);
-  const edge = -result.options.usablePallet.widthMm / 2;
-  const edgeItems = result.layers[0].filter(item => Math.abs(item.zMm - item.widthMm / 2 - edge) < 1e-6);
+  const layerMinZ = Math.min(...result.layers[0].map(item => item.zMm - item.widthMm / 2));
+  const layerMaxZ = Math.max(...result.layers[0].map(item => item.zMm + item.widthMm / 2));
+  assert.ok(Math.abs(layerMinZ + layerMaxZ) < 1e-6, '展示层整体应居中于托盘宽度方向');
+  const edgeItems = result.layers[0].filter(item => Math.abs(item.zMm - item.widthMm / 2 - layerMinZ) < 1e-6);
   assert.ok(edgeItems.length > 0);
   assert.ok(edgeItems.every(item => item.faceByWorldAxis.z === 'W'));
 });
