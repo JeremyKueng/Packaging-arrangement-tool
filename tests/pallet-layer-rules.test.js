@@ -140,3 +140,41 @@ test('输出次优解：总数次高且层结构与最优不同，缓存命中�
   assert.equal(cached.runnerUp.isRunnerUp, true);
   assert.equal(cached.runnerUp.totalCount, runner.totalCount);
 });
+
+function boundsMinMax(placements) {
+  return placements.reduce((b, item) => ({
+    minX: Math.min(b.minX, item.xMm - item.lengthMm / 2),
+    maxX: Math.max(b.maxX, item.xMm + item.lengthMm / 2),
+    minZ: Math.min(b.minZ, item.zMm - item.widthMm / 2),
+    maxZ: Math.max(b.maxZ, item.zMm + item.widthMm / 2),
+  }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+}
+
+test('案例回归：325×180×438 单边展示＋1300 高度——模板逐层一致且顶层侧倒生效', () => {
+  clearPalletLayoutCache();
+  const input = {
+    packageType: 'softpack',
+    unitSizeMm: { lengthMm: 325, widthMm: 180, heightMm: 438 },
+    loadHeightMm: 1300,
+    allowedOrientations: ['A', 'B'],
+    layerStrategy: 'cyclic-interlock',
+    softpackOptions: { cornerProtectorsEnabled: false, topSideLayMode: 'auto' },
+    faceConstraint: { enabled: true, palletEdge: 'z-', unitFace: 'long-side', layout: 'edge-exposure' },
+  };
+  const plan = optimizePalletLayout(input);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.topSideLayApplied, true);
+  assert.ok(plan.layerCount >= 3, '1300 高度应能叠到第三层（顶层侧倒）');
+  // 正常姿态层必须复用同一单边模板（覆盖面积一致）。
+  const posSig = layer => layer.map(item => [item.xMm, item.zMm, item.orientation].join(':')).sort().join('|');
+  const normalLayers = plan.layers.filter(layer => layer.every(item => item.posture === 'normal'));
+  assert.ok(normalLayers.length >= 2, '应有至少两层正常姿态层');
+  for (const layer of normalLayers) assert.equal(posSig(layer), posSig(normalLayers[0]), '单边模板各层结构应一致');
+  // 每层相对下层出边 ≤10mm。
+  for (let i = 1; i < plan.layers.length; i++) {
+    const lo = boundsMinMax(plan.layers[i - 1]);
+    const up = boundsMinMax(plan.layers[i]);
+    const overhang = Math.max(lo.minX - up.minX, up.maxX - lo.maxX, lo.minZ - up.minZ, up.maxZ - lo.maxZ, 0);
+    assert.ok(overhang <= 10 + 1e-6, '第 ' + (i + 1) + ' 层出边 ' + overhang.toFixed(1) + ' 应 ≤ 10');
+  }
+});

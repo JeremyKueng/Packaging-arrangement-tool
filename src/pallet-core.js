@@ -689,16 +689,18 @@ export function palletRowMarginReport(placements) {
 
 function layerOptions(options, layerIndex, posture = 'normal') {
   // 分层规则口径（v3）：“一/二/三”是约束的先后顺序，不是物理层号——
-  // 约束一：顶层侧倒出边限制（在 extendState 中校验）；
+  // 约束一：顶层侧倒出边限制（在 extendState 中校验并对齐下层轮廓）；
   // 约束二：整板展示面模板，由 faceConstraint（指定托盘长边展示面）承载；
   // 约束三：每一层都要求长边第一排允许贴边、其余排至少一排沿托盘长向剩余 ≥ 行余量下限。
-  const patterns = patternVariants(options, layerIndex);
   const isEdgeTemplate = options.faceConstraint.enabled && options.faceConstraint.layout === 'edge-exposure';
   // 单边展示约束只约束正常姿态层。侧倒（H 面向下）时长侧面必然朝上，与
   // “L 面朝托盘长边”在几何上互斥；若把约束套到侧倒层，候选会被过滤为空、
   // 极限侧倒静默失效。因此侧倒层豁免该约束，展示面由下部正常姿态层保证。
   const exemptFromFaceConstraint = posture === 'side-lay';
   const templateApplies = isEdgeTemplate && !exemptFromFaceConstraint;
+  // 单边模板必须逐层复用同一结构（覆盖面积一致），不随循环错层轮换——
+  // 否则上下层模板不同会导致第二层比第一层更“大”，现场无法堆叠。
+  const patterns = patternVariants(options, templateApplies ? 0 : layerIndex);
   const candidates = templateApplies
     ? edgeExposureLayouts(options, posture)
     : [
@@ -724,7 +726,10 @@ function layerOptions(options, layerIndex, posture = 'normal') {
   let source = (options.layerStrategy === 'same' || options.layerStrategy === 'alternate')
     ? filtered
     : valid;
-  if (options.layerStrategy === 'cyclic-interlock' || options.layerStrategy === 'optimize') {
+  // 件数择优只作用于正常姿态层。侧倒层的可行性与所在状态的下层轮廓相关
+  // （约束一的对齐平移），件数最大的候选未必放得进去；若在此剪掉小方案，
+  // 会导致“有可行侧倒却整体失效”。侧倒层的取舍交给最终 compareSelection。
+  if (posture === 'normal' && (options.layerStrategy === 'cyclic-interlock' || options.layerStrategy === 'optimize')) {
     const maxCount = source.reduce((max, item) => Math.max(max, item.placements.length), 0);
     source = source.filter(item => item.placements.length === maxCount);
   }
@@ -739,7 +744,9 @@ function layerOptions(options, layerIndex, posture = 'normal') {
       }
       return evaluateLayer(a.placements, options).centerOffsetMm - evaluateLayer(b.placements, options).centerOffsetMm;
     })
-    .slice(0, options.maxCandidates);
+    // 单边模板层只保留唯一最优结构：上下层覆盖面积必须一致，
+    // 且错层比较器不能在模板层之间制造差异。
+    .slice(0, templateApplies ? 1 : options.maxCandidates);
 }
 
 function compareState(a, b) {
@@ -757,6 +764,45 @@ function layerHeight(choice) {
   return choice.placements.reduce((max, item) => Math.max(max, item.heightMm), 0);
 }
 
+// 约束一辅助：侧倒候选默认居中生成，但单边模板的下层轮廓贴展示边、并不居中；
+// 居中直接放会误判“出边超限”。这里枚举平移量（每轴取 左对齐/右对齐/不动 三种），
+// 选出相对下层轮廓悬出最小、且不越出托盘边界的组合。整体平移不改变件间相对
+// 位置，重叠关系与支撑面积保持不变。
+function alignedSideLayShift(upperPlacements, lowerLayer, options) {
+  const pallet = options.usablePallet || options.pallet;
+  const lower = placementBounds(lowerLayer);
+  const upper = placementBounds(upperPlacements);
+  const limit = options.layerRules.sideLayMaxOverhangMm;
+  const axisShifts = (lo, hi, ul, uh) => [...new Set([lo - ul, hi - uh, 0])];
+  const shiftsX = axisShifts(lower.minX, lower.maxX, upper.minX, upper.maxX);
+  const shiftsZ = axisShifts(lower.minZ, lower.maxZ, upper.minZ, upper.maxZ);
+  const overhangOf = (dx, dz) => Math.max(
+    lower.minX - (upper.minX + dx),
+    upper.maxX + dx - lower.maxX,
+    lower.minZ - (upper.minZ + dz),
+    upper.maxZ + dz - lower.maxZ,
+    0,
+  );
+  const inBounds = (item, dx, dz) => placementInBounds(
+    { ...item, xMm: item.xMm + dx, zMm: item.zMm + dz },
+    pallet,
+    options.overhangMm,
+  );
+  let best = null;
+  for (const dx of shiftsX) {
+    for (const dz of shiftsZ) {
+      const overhang = overhangOf(dx, dz);
+      if (overhang > limit + EPS) continue;
+      if (!upperPlacements.every(item => inBounds(item, dx, dz))) continue;
+      const travel = Math.abs(dx) + Math.abs(dz);
+      if (!best || overhang < best.overhang - EPS || (Math.abs(overhang - best.overhang) <= EPS && travel < best.travel)) {
+        best = { dx, dz, overhang, travel };
+      }
+    }
+  }
+  return best;
+}
+
 function extendState(state, choice, options, enforceSupport = true, stats = null) {
   const reject = () => {
     if (stats) stats.prunedCount++;
@@ -767,7 +813,16 @@ function extendState(state, choice, options, enforceSupport = true, stats = null
   if (!height) return reject();
   if (state.heightMm + height > options.loadHeightMm + EPS) return reject();
   const baseHeight = state.heightMm;
-  const layer = choice.placements.map(item => ({
+  // 约束一启用时，侧倒层先尝试对齐下层轮廓再放置。
+  let placed = choice.placements;
+  if (options.layerRules?.enabled && choice.posture === 'side-lay' && layerIndex) {
+    const shift = alignedSideLayShift(choice.placements, state.layers[layerIndex - 1], options);
+    if (!shift) return reject();
+    if (shift.dx || shift.dz) {
+      placed = choice.placements.map(item => ({ ...item, xMm: item.xMm + shift.dx, zMm: item.zMm + shift.dz }));
+    }
+  }
+  const layer = placed.map(item => ({
     ...item,
     layer: layerIndex,
     yMm: options.pallet.heightMm + baseHeight + item.heightMm / 2,
