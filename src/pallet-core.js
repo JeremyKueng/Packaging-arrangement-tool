@@ -771,14 +771,42 @@ function layerOptions(options, layerIndex, posture = 'normal') {
   });
   // 单边模板层按“单层件数档位”各保留一个最优变体（最多两档）：
   // 第一档用于最优解；第二档进入搜索以生成“每层数量下调整档”的次优方案。
-  // 同一档内只留唯一最优结构：上下层覆盖面积必须一致，
-  // 且错层比较器不能在模板层之间制造差异。
-  if (templateApplies) {
+  // 整排/整列枚举的档位可能跳档（如 15→12），但“能放 15 件必然能放 14 件”——
+  // 这里从最优模板逐件移除最内侧填充件并重新居中，派生连续递减档位，
+  // 经边界与行余量校验后参与择优，保证次优方案每层只降一件而不是跳档。
+  if (templateApplies && sorted.length) {
+    const pool = [...sorted];
+    const best = sorted[0];
+    const maxCount = best.placements.length;
+    if (posture === 'normal' && maxCount > 1) {
+      const innermostFirst = [...best.placements].sort((a, b) => b.zMm - a.zMm || b.xMm - a.xMm);
+      for (let remove = 1; remove < maxCount; remove++) {
+        const kept = innermostFirst.slice(remove);
+        let minZ = Infinity; let maxZ = -Infinity;
+        for (const item of kept) {
+          const lo = item.zMm - item.widthMm / 2; const hi = item.zMm + item.widthMm / 2;
+          if (lo < minZ) minZ = lo;
+          if (hi > maxZ) maxZ = hi;
+        }
+        const dzCenter = -(minZ + maxZ) / 2;
+        const placements = kept.map(item => ({ ...item, zMm: item.zMm + dzCenter }));
+        if (!placementsValid(placements, options.usablePallet || options.pallet, options.overhangMm)) continue;
+        if (options.layerRules?.enabled && !rowMarginRuleSatisfied(placements, options)) continue;
+        pool.push({ ...best, placements });
+      }
+    }
+    // 两档口径：第一档=最大件数；第二档优先“最大件数-1”（向下兼容），
+    // 仅当该档没有通过校验的候选时才回退到次大档（如 12）。
+    const countsDesc = [...new Set(pool.map(item => item.placements.length))].sort((a, b) => b - a);
+    const preferredSecond = countsDesc[0] - 1;
+    const secondTier = countsDesc.includes(preferredSecond) ? preferredSecond : countsDesc[1];
+    const keepCounts = new Set(countsDesc.length > 1 ? [countsDesc[0], secondTier] : [countsDesc[0]]);
     const picked = [];
     const seenCounts = new Set();
-    for (const item of sorted) {
-      if (seenCounts.has(item.placements.length)) continue;
-      seenCounts.add(item.placements.length);
+    for (const item of pool) {
+      const count = item.placements.length;
+      if (!keepCounts.has(count) || seenCounts.has(count)) continue;
+      seenCounts.add(count);
       picked.push(item);
       if (picked.length >= 2) break;
     }

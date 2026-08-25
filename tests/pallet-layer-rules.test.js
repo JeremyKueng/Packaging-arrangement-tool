@@ -153,6 +153,9 @@ test('次优解定义：同高度下每层数量下调整档的另一种排法�
   // 每层数量必须真的下调整档：正常姿态层的件数序列与最优不同——
   // “仅顶层侧倒少一件”的方案不属于次优。
   assert.notEqual(normalLayerCounts(runner), normalLayerCounts(first), '正常层每层数量应与最优不同');
+  // 向下兼容口径：能放 N 件必然能放 N-1 件，次优只降一件而不是跳档。
+  const firstNormalCount = plan => Number(normalLayerCounts(plan).split('/')[0]);
+  assert.equal(firstNormalCount(runner), firstNormalCount(first) - 1, '次优每层应恰好比最优少一件');
   assert.equal(runner.layerCount, first.layerCount, '次优应与最优同高度（层数一致）');
   assert.equal(first.placements.length, first.totalCount);
   // 缓存命中路径同样要带出次优解。
