@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   clearPalletLayoutCache,
   enumerateSingleEdgeLayouts,
+  normalizePalletOptions,
   optimizePalletLayout,
   palletRowMarginReport,
 } from '../src/pallet-core.js';
@@ -31,15 +32,33 @@ function structureSig(plan) {
   return plan.layers.map(layer => layer.length + (layer.some(item => item.posture === 'side-lay') ? 's' : '')).join('|');
 }
 
-test('分层规则关闭时结果与 v2 口径一致（layerRules 缺省不生效）', () => {
+test('软包默认启用分层规则（内建算法，无需开关）；纸箱与显式关闭回退统一规则', () => {
+  const softpackDefaults = normalizePalletOptions({
+    packageType: 'softpack',
+    unitSizeMm: { lengthMm: 400, widthMm: 180, heightMm: 280 },
+    loadHeightMm: 1040,
+  });
+  assert.equal(softpackDefaults.layerRules.enabled, true);
+  assert.equal(softpackDefaults.layerRules.sideLayMaxOverhangMm, 10);
+  assert.equal(softpackDefaults.layerRules.minRowMarginMm, 50);
+  assert.equal(softpackDefaults.layerRules.secondLayerMode, 'free');
+
+  const caseDefaults = normalizePalletOptions({
+    packageType: 'case',
+    unitSizeMm: { lengthMm: 400, widthMm: 180, heightMm: 280 },
+    loadHeightMm: 1040,
+  });
+  assert.equal(caseDefaults.layerRules.enabled, false);
+
   clearPalletLayoutCache();
-  const without = optimizePalletLayout(layerRulesBaseInput);
-  const withOff = optimizePalletLayout({
+  // 显式关闭后回到统一规则口径：与“关闭+默认参数”结果一致。
+  const legacy = optimizePalletLayout({ ...layerRulesBaseInput, layerRules: { enabled: false } });
+  const disabled = optimizePalletLayout({
     ...layerRulesBaseInput,
     layerRules: { enabled: false, sideLayMaxOverhangMm: 10, secondLayerMode: 'free', minRowMarginMm: 50 },
   });
-  assert.equal(without.totalCount, withOff.totalCount);
-  assert.equal(without.layerCount, withOff.layerCount);
+  assert.equal(legacy.totalCount, disabled.totalCount);
+  assert.equal(legacy.layerCount, disabled.layerCount);
 });
 
 test('规则一：顶层侧倒相对下层轮廓出边不得超过设定值', () => {
@@ -79,13 +98,10 @@ test('规则二：第二层固定为长侧面单边展示模板（全局展示�
   assert.ok(templates.includes(secondSig), '第二层排样应命中长侧面单边模板集合');
 });
 
-test('规则三：第三层起每层其余排至少一排沿托盘长向剩余≥50mm', () => {
+test('规则三：软包缺省即生效——第三层起每层其余排至少一排沿托盘长向剩余≥50mm', () => {
   clearPalletLayoutCache();
-  const input = {
-    ...layerRulesBaseInput,
-    layerRules: { enabled: true, sideLayMaxOverhangMm: 10, secondLayerMode: 'free', minRowMarginMm: 50 },
-  };
-  const baseline = optimizePalletLayout(layerRulesBaseInput);
+  const input = layerRulesBaseInput;
+  const baseline = optimizePalletLayout({ ...layerRulesBaseInput, layerRules: { enabled: false } });
   const plan = optimizePalletLayout(input);
   assert.equal(plan.ok, true);
   assert.ok(plan.totalCount <= baseline.totalCount, '规则收紧后件数不应增加');

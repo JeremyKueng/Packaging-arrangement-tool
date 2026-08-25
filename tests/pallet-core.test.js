@@ -161,6 +161,9 @@ test('顶层侧倒只对softpack开放，并按件数优先、同件数再比较
     layerStrategy: 'same',
     allowedOrientations: ['A'],
     basePattern: ['A'],
+    // 该案例下层深度不足以容纳侧倒层（会超出来层轮廓），显式关闭分层出边规则，
+    // 仅验证侧倒的包装类型门控与择优口径本身。
+    layerRules: { enabled: false },
   };
   const normal = optimizePalletLayout({ ...base, packageType: 'softpack', softpackOptions: { allowTopSideLay: false } });
   const side = optimizePalletLayout({ ...base, packageType: 'softpack', softpackOptions: { allowTopSideLay: true } });

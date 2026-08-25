@@ -197,15 +197,16 @@ export function normalizePalletOptions(options = {}) {
   const faceLayout = PALLET_FACE_LAYOUTS.includes(face.layout)
     ? face.layout
     : (face.enabled ? 'edge-exposure' : 'auto');
-  // 分层规则（v3 新增，可选）：缺省关闭时行为与 v2 完全一致。
+  // 分层规则（v3）：软包叠板的内建算法结构，不再需要单独开关——
+  // 规则一：顶层侧倒件相对下层轮廓每侧最大悬出（默认 10 mm）；
+  // 规则二：第二层独立码放模式（无限制/长侧面/短侧面单边展示）；
+  // 规则三：第三层起每层行余量下限（默认 50 mm，长边第一排允许贴边）。
+  // 纸箱不启用；显式传入 layerRules.enabled=false 可强制关闭。
   const rulesRaw = plain(raw.layerRules) ? raw.layerRules : {};
   const layerRules = {
-    enabled: Boolean(rulesRaw.enabled),
-    // 规则一：顶层侧倒件相对下一层轮廓的每侧最大悬出量。
+    enabled: rulesRaw.enabled != null ? Boolean(rulesRaw.enabled) : packageType === 'softpack',
     sideLayMaxOverhangMm: clamp(finite(rulesRaw.sideLayMaxOverhangMm, 10), 0, 100),
-    // 规则二：第二层（自下而上第 2 层）的独立模式。
     secondLayerMode: PALLET_SECOND_LAYER_MODES.includes(rulesRaw.secondLayerMode) ? rulesRaw.secondLayerMode : 'free',
-    // 规则三：第三层起每层至少一排沿托盘长向剩余 ≥ 该值；长边第一排允许 0 余量。
     minRowMarginMm: clamp(finite(rulesRaw.minRowMarginMm, 50), 0, 500),
   };
   const cornerProtection = {
