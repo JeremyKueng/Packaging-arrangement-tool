@@ -579,11 +579,7 @@
   <div class="import-dialog" id="templateLibraryDialog" hidden role="dialog" aria-modal="true" aria-labelledby="templateLibraryTitle">
     <div class="import-dialog-panel">
       <h2 id="templateLibraryTitle">模板库</h2>
-      <p>把当前工段参数保存为模板，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。模板以 JSON 文件保存在工具目录的「模板库」文件夹中，可直接查看与复制；用「启动中包排列工具」打开即自动连接，无需任何配置。</p>
-      <div class="import-dialog-actions">
-        <label for="templateApiBase" style="font-size:12px;white-space:nowrap">服务地址</label>
-        <input id="templateApiBase" type="text" placeholder="留空＝自动连接（同源或本机 127.0.0.1:8090）；共享他人电脑的模板库时才需填写" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px;font-family:monospace">
-      </div>
+      <p>把当前工段参数保存为模板，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。模板以 JSON 文件保存在工具目录的「模板库」文件夹中，可直接查看与复制。</p>
       <div class="import-dialog-actions">
         <input id="templateSaveName" type="text" placeholder="模板名称（留空自动命名）" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px">
         <button class="import-merge" id="saveTemplateBtn" type="button">保存当前工段为模板</button>
@@ -6211,20 +6207,9 @@
 
     // ===== 模板库：前端目录入口 + 后端落地点 =====
     // 后端为 server/template_server.py（Python 标准库零依赖）。
-    // 服务地址留空 = 自动连接：优先同源（启动器内置接口），失败则探测本机 8090；
-    // 仅在连接其它电脑的模板库时才需手动填写。
-    // http://127.0.0.1:8090 并回车（后端已开 CORS，跨域可用），选择持久化保存。
-    const TEMPLATE_API_KEY = 'vida-template-api-base';
-    const TEMPLATE_API_FALLBACK = 'http://127.0.0.1:8090';
-    function templateApiBase() {
-      return ($('templateApiBase').value || '').trim().replace(/\/+$/, '');
-    }
-    function loadTemplateApiBase() {
-      const saved = readStoredJson(TEMPLATE_API_KEY);
-      return typeof saved === 'string' ? saved : '';
-    }
+    // 模板接口始终与页面同源（由启动器常驻服务内置），无需任何配置。
     function apiUrl(path) {
-      return `${templateApiBase()}/api/templates${path}`;
+      return `/api/templates${path}`;
     }
     const SECTION_LABELS = { midpack:'中包工段', bigpack:'大包工段', case:'装箱工段', pallet:'叠板工段' };
     function templateLibStatus(text, tone) {
@@ -6293,37 +6278,17 @@
       try {
         renderTemplateList(await fetchTemplateList());
         templateLibStatus('');
-        return;
       } catch (err) {
-        // 同源模式失败：自动探测本机默认端口上独立运行的模板服务，命中即静默接入
-        if (!templateApiBase()) {
-          try {
-            const probe = await fetch(`${TEMPLATE_API_FALLBACK}/api/templates`, { headers: { Accept: 'application/json' } });
-            if (probe.ok) {
-              $('templateApiBase').value = TEMPLATE_API_FALLBACK;
-              writeStoredJson(TEMPLATE_API_KEY, TEMPLATE_API_FALLBACK);
-              renderTemplateList(await fetchTemplateList());
-              templateLibStatus(`已自动连接本机模板服务（${TEMPLATE_API_FALLBACK}）`);
-              return;
-            }
-          } catch { /* 本机也没有服务，走下方错误提示 */ }
-        }
         $('templateList').textContent = '';
-        const base = templateApiBase();
         const hint = err.message.includes('404')
-          ? `未发现模板服务（HTTP 404）。请先用「启动中包排列工具」打开本页面${base ? `；若使用独立模板服务，请确认上方地址与端口一致（当前：${base}）` : '，或运行 python server/template_server.py 后在上方填写服务地址'}。`
-          : `无法连接模板服务：${err.message}。请确认已运行 python server/template_server.py，并在上方填写正确的服务地址。`;
+          ? '未发现模板服务（HTTP 404）。请用「启动中包排列工具」打开本页面后再使用模板库。'
+          : `无法连接模板服务：${err.message}。请关闭本页面后用「启动中包排列工具」重新打开。`;
         templateLibStatus(hint, 'error');
       }
     }
     $('templateLibraryBtn').addEventListener('click', () => {
       $('templateLibraryDialog').hidden = false;
-      $('templateApiBase').value = loadTemplateApiBase();
       templateLibStatus('');
-      refreshTemplateList();
-    });
-    $('templateApiBase').addEventListener('change', () => {
-      writeStoredJson(TEMPLATE_API_KEY, templateApiBase());
       refreshTemplateList();
     });
     $('templateLibraryCloseBtn').addEventListener('click', () => { $('templateLibraryDialog').hidden = true; });
