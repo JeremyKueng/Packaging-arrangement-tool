@@ -477,6 +477,7 @@
         <button class="stage-action-link" id="dataManageBtn" type="button">预设数据管理…</button>
         <button class="secondary" id="copyParamsJsonBtn" type="button" title="复制当前工段参数 JSON：叠板工段含完整算法输入；其他工段含从单粒到大规格的全链路参数，便于粘贴给 AI 或他人排查问题">复制参数 JSON</button>
         <button class="secondary" id="pasteParamsJsonBtn" type="button" title="粘贴他人复制的参数 JSON，跳转到对应工段并还原全部参数视图">粘贴参数 JSON…</button>
+        <button class="secondary" id="templateLibraryBtn" type="button" title="打开模板库：把当前工段参数存入后端模板库，或浏览/应用/删除已有模板">模板库…</button>
         <div class="field"><label for="lightingToggle">全局光影</label><select id="lightingToggle"><option value="on">开 · 阴影立体</option><option value="off">关 · 扁平无影</option></select></div>
         <div class="export-status" id="batchExportStatus" role="status" aria-live="polite"></div>
       </footer>
@@ -571,6 +572,22 @@
       <div class="import-dialog-actions">
         <button class="import-merge" id="applyPasteParamsBtn" type="button">应用参数</button>
         <button class="import-cancel" id="pasteParamsCloseBtn" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="import-dialog" id="templateLibraryDialog" hidden role="dialog" aria-modal="true" aria-labelledby="templateLibraryTitle">
+    <div class="import-dialog-panel">
+      <h2 id="templateLibraryTitle">模板库</h2>
+      <p>把当前工段参数保存到后端模板库，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。需先启动模板服务：python server/template_server.py</p>
+      <div class="import-dialog-actions">
+        <input id="templateSaveName" type="text" placeholder="模板名称（留空自动命名）" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px">
+        <button class="import-merge" id="saveTemplateBtn" type="button">保存当前工段为模板</button>
+      </div>
+      <div id="templateList" style="max-height:320px;overflow:auto;text-align:left;font-size:13px"></div>
+      <div class="export-status" id="templateLibStatus" role="status" aria-live="polite"></div>
+      <div class="import-dialog-actions">
+        <button class="import-cancel" id="templateLibraryCloseBtn" type="button">关闭</button>
       </div>
     </div>
   </div>
@@ -5994,54 +6011,56 @@
         return Boolean(ok);
       }
     }
-    $('copyParamsJsonBtn').addEventListener('click', async () => {
+    // 构造当前工段的参数快照：「复制参数 JSON」「存入模板库」共用同一载荷契约。
+    function buildSectionPayload() {
       const capturedAt = new Date().toISOString();
-      let payload;
       if (isPallet()) {
-        payload = {
+        return {
           algorithmVersion: PALLET_ALGORITHM_VERSION,
           capturedAt,
           section: 'pallet',
           options: normalizePalletOptions(palletOptionsFromUi()),
         };
-      } else {
-        const type = ui.category.value;
-        const metrics = getMidpackMetrics();
-        const bundleSpec = metrics.bundleSpec || { count: 1 };
-        payload = {
-          algorithmVersion: PALLET_ALGORITHM_VERSION,
-          capturedAt,
-          section: packagingLevel,
-          granule: {
-            category: type,
-            presetId: ui.preset.value,
-            presetName: ui.presetName.value.trim() || null,
-            orientation: ui.orientation.value,
-            softdrawVariant: ui.softdrawVariant.value,
-            hangingSideDirection: ui.hangingSideDirection.value,
-            rollCore: ui.rollCore.value,
-            rollBundle: { mode: bundleSpec.mode || 'single', x: bundleSpec.x || 1, z: bundleSpec.z || 1, y: bundleSpec.y || 1 },
-            customDimensionsMm: currentDimensionOverride(type),
-          },
-          midpack: {
-            arrangement: { rows: metrics.r, cols: metrics.c, layers: metrics.l },
-            handleSide: ui.handleSide.value,
-            gapPercent: Number(ui.gap.value),
-            envelope: ui.envelope.checked,
-            autoRotate: ui.autoRotate.checked,
-            // metrics.d / physicalTotal 为场景单位，导出前换算回 mm。
-            unitSizeMm: metrics.d.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
-            bagSizeMm: metrics.physicalTotal.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
-            countPerBag: metrics.count,
-            draft: midpackDraft ? cloneJson(midpackDraft) : null,
-          },
-          outer: {
-            bigpackDraft: cloneJson(outerDrafts.bigpack || null),
-            caseDraft: cloneJson(outerDrafts.case || null),
-            activeForm: readOuterForm(packagingLevel),
-          },
-        };
       }
+      const type = ui.category.value;
+      const metrics = getMidpackMetrics();
+      const bundleSpec = metrics.bundleSpec || { count: 1 };
+      return {
+        algorithmVersion: PALLET_ALGORITHM_VERSION,
+        capturedAt,
+        section: packagingLevel,
+        granule: {
+          category: type,
+          presetId: ui.preset.value,
+          presetName: ui.presetName.value.trim() || null,
+          orientation: ui.orientation.value,
+          softdrawVariant: ui.softdrawVariant.value,
+          hangingSideDirection: ui.hangingSideDirection.value,
+          rollCore: ui.rollCore.value,
+          rollBundle: { mode: bundleSpec.mode || 'single', x: bundleSpec.x || 1, z: bundleSpec.z || 1, y: bundleSpec.y || 1 },
+          customDimensionsMm: currentDimensionOverride(type),
+        },
+        midpack: {
+          arrangement: { rows: metrics.r, cols: metrics.c, layers: metrics.l },
+          handleSide: ui.handleSide.value,
+          gapPercent: Number(ui.gap.value),
+          envelope: ui.envelope.checked,
+          autoRotate: ui.autoRotate.checked,
+          // metrics.d / physicalTotal 为场景单位，导出前换算回 mm。
+          unitSizeMm: metrics.d.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
+          bagSizeMm: metrics.physicalTotal.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
+          countPerBag: metrics.count,
+          draft: midpackDraft ? cloneJson(midpackDraft) : null,
+        },
+        outer: {
+          bigpackDraft: cloneJson(outerDrafts.bigpack || null),
+          caseDraft: cloneJson(outerDrafts.case || null),
+          activeForm: readOuterForm(packagingLevel),
+        },
+      };
+    }
+    $('copyParamsJsonBtn').addEventListener('click', async () => {
+      const payload = buildSectionPayload();
       const text = JSON.stringify(payload, null, 2);
       const ok = await writeClipboard(text);
       showCopyStatus(
@@ -6141,6 +6160,38 @@
       ui.pasteParamsText.focus();
     });
     ui.pasteParamsCloseBtn.addEventListener('click', () => { ui.pasteParamsDialog.hidden = true; });
+    // 应用一份参数载荷：「粘贴 JSON」与模板库「应用」共用。返回 null=成功，否则错误文案。
+    function applyParamsPayload(payload) {
+      if (!payload || typeof payload !== 'object') return '内容不是有效的参数 JSON。';
+      const section = payload.section;
+      if (section === 'pallet') {
+        // 先切工段（restoreStageDraft 会用本地草稿重填表单），再写值——
+        // 叠板输入监听器仅在叠板工段生效，顺序反了会被草稿覆盖。
+        if (!isPallet()) setWorkflowStep('pallet');
+        applyPalletOptionsToForm(normalizePalletOptions(payload.options || {}));
+        setPalletStatus('已应用叠板参数并重算方案。', 'success');
+        return null;
+      }
+      if (!['midpack', 'bigpack', 'case'].includes(section)) {
+        return '无法识别的工段标识（section）；请确认来源是本工具导出的参数 JSON。';
+      }
+      try {
+        prepareChainDrafts(payload);
+        if (activeWorkflowStage() !== section) setWorkflowStep(section, false);
+        applyChainPayload(payload);
+      } catch (err) {
+        return `参数还原失败：${err.message}`;
+      }
+      updateLevelButtons();
+      setWorkflowStep(section, false);
+      requestRebuild(true);
+      if (payload.algorithmVersion && payload.algorithmVersion !== PALLET_ALGORITHM_VERSION) {
+        showCopyStatus(`已应用参数；注意：来源版本 ${payload.algorithmVersion} 与当前 ${PALLET_ALGORITHM_VERSION} 不同，结果可能存在口径差异。`, 'warn');
+      } else {
+        showCopyStatus('已应用全链路参数并跳转到对应工段。', 'success');
+      }
+      return null;
+    }
     ui.applyPasteParamsBtn.addEventListener('click', () => {
       let payload;
       try {
@@ -6149,37 +6200,106 @@
         pasteStatus(`JSON 解析失败：${err.message}`, 'error');
         return;
       }
-      if (!payload || typeof payload !== 'object') { pasteStatus('内容不是有效的参数 JSON。', 'error'); return; }
-      const section = payload.section;
-      if (section === 'pallet') {
-        ui.pasteParamsDialog.hidden = true;
-        // 先切工段（restoreStageDraft 会用本地草稿重填表单），再写粘贴值——
-        // 叠板输入监听器仅在叠板工段生效，顺序反了会被草稿覆盖。
-        if (!isPallet()) setWorkflowStep('pallet');
-        applyPalletOptionsToForm(normalizePalletOptions(payload.options || {}));
-        setPalletStatus('已应用粘贴的叠板参数并重算方案。', 'success');
-        return;
-      }
-      if (!['midpack', 'bigpack', 'case'].includes(section)) {
-        pasteStatus('无法识别的工段标识（section）；请确认粘贴的是本工具导出的参数 JSON。', 'error');
-        return;
-      }
-      try {
-        prepareChainDrafts(payload);
-        if (activeWorkflowStage() !== section) setWorkflowStep(section, false);
-        applyChainPayload(payload);
-      } catch (err) {
-        pasteStatus(`参数还原失败：${err.message}`, 'error');
-        return;
-      }
-      updateLevelButtons();
+      const error = applyParamsPayload(payload);
+      if (error) { pasteStatus(error, 'error'); return; }
       ui.pasteParamsDialog.hidden = true;
-      setWorkflowStep(section, false);
-      requestRebuild(true);
-      if (payload.algorithmVersion && payload.algorithmVersion !== PALLET_ALGORITHM_VERSION) {
-        showCopyStatus(`已应用参数；注意：来源版本 ${payload.algorithmVersion} 与当前 ${PALLET_ALGORITHM_VERSION} 不同，结果可能存在口径差异。`, 'warn');
-      } else {
-        showCopyStatus('已应用粘贴的全链路参数并跳转到对应工段。', 'success');
+    });
+
+    // ===== 模板库：前端目录入口 + 后端落地点 =====
+    // 后端为 server/template_server.py（Python 标准库零依赖），工具页面从该服务打开时同源访问 /api。
+    const TEMPLATE_API = '/api/templates';
+    const SECTION_LABELS = { midpack:'中包工段', bigpack:'大包工段', case:'装箱工段', pallet:'叠板工段' };
+    function templateLibStatus(text, tone) {
+      const el = $('templateLibStatus');
+      el.dataset.tone = tone || '';
+      el.textContent = text;
+    }
+    async function fetchTemplateList() {
+      const res = await fetch(TEMPLATE_API);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+    function renderTemplateList(items) {
+      const listEl = $('templateList');
+      listEl.textContent = '';
+      const bySection = {};
+      for (const item of items) (bySection[item.section] ||= []).push(item);
+      let rendered = 0;
+      for (const [section, label] of Object.entries(SECTION_LABELS)) {
+        const group = bySection[section];
+        if (!group?.length) continue;
+        const heading = document.createElement('div');
+        heading.textContent = `${label}（${group.length}）`;
+        heading.style.cssText = 'font-weight:500;margin:10px 0 4px';
+        listEl.appendChild(heading);
+        for (const item of group) {
+          rendered++;
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.15)';
+          const name = document.createElement('span');
+          name.style.flex = '1';
+          name.textContent = item.capturedAt ? `${item.name} · ${new Date(item.capturedAt).toLocaleString('zh-CN', { hour12: false })}` : item.name;
+          const useBtn = document.createElement('button');
+          useBtn.type = 'button'; useBtn.className = 'import-merge'; useBtn.textContent = '应用';
+          useBtn.addEventListener('click', async () => {
+            try {
+              const res = await fetch(`${TEMPLATE_API}/${encodeURIComponent(item.id)}`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const detail = await res.json();
+              const error = applyParamsPayload(detail.payload);
+              templateLibStatus(error || `已应用模板“${item.name}”。`, error ? 'error' : 'success');
+              if (!error) $('templateLibraryDialog').hidden = true;
+            } catch (err) {
+              templateLibStatus(`读取模板失败：${err.message}`, 'error');
+            }
+          });
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button'; delBtn.className = 'import-cancel'; delBtn.textContent = '删除';
+          delBtn.addEventListener('click', async () => {
+            try {
+              const res = await fetch(`${TEMPLATE_API}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              templateLibStatus('已删除。', 'success');
+              await refreshTemplateList();
+            } catch (err) {
+              templateLibStatus(`删除失败：${err.message}`, 'error');
+            }
+          });
+          row.append(name, useBtn, delBtn);
+          listEl.appendChild(row);
+        }
+      }
+      if (!rendered) listEl.textContent = '暂无模板；在对应工段设置好参数后，用上方按钮保存到模板库。';
+    }
+    async function refreshTemplateList() {
+      try {
+        renderTemplateList(await fetchTemplateList());
+      } catch (err) {
+        $('templateList').textContent = '';
+        templateLibStatus(`无法连接模板服务（${TEMPLATE_API}）：${err.message}。请先运行 python server/template_server.py 并从该服务地址打开本工具。`, 'error');
+      }
+    }
+    $('templateLibraryBtn').addEventListener('click', () => {
+      $('templateLibraryDialog').hidden = false;
+      templateLibStatus('');
+      refreshTemplateList();
+    });
+    $('templateLibraryCloseBtn').addEventListener('click', () => { $('templateLibraryDialog').hidden = true; });
+    $('saveTemplateBtn').addEventListener('click', async () => {
+      const fallbackName = `${SECTION_LABELS[packagingLevel] || '工段'}模板 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
+      const name = $('templateSaveName').value.trim() || fallbackName;
+      try {
+        const res = await fetch(TEMPLATE_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, section: packagingLevel, payload: buildSectionPayload() }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        $('templateSaveName').value = '';
+        templateLibStatus(`已保存“${name}”到模板库。`, 'success');
+        await refreshTemplateList();
+      } catch (err) {
+        templateLibStatus(`保存失败：${err.message}——请确认已启动模板服务（python server/template_server.py）。`, 'error');
       }
     });
     ui.newPalletPresetBtn.addEventListener('click', () => {
