@@ -26,7 +26,7 @@ const EPS = 1e-6;
 // 因此调用方修改 placements / options / debug 不会污染后续调用。容量是有限的 LRU，
 // 避免长期编辑不同箱规时内存无限增长。
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
-export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v5';
+export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v6';
 
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
@@ -927,16 +927,15 @@ function sideLayOverhangWithinLimit(upperPlacements, lowerLayer, limitMm) {
   return overhang <= limitMm + EPS;
 }
 
-// 把一层单件聚成“排”：addRowLayout 与单边模板生成的候选里，
-// 同一排的单件共享同一条带坐标；唯一值较少的方向即排的叠进方向。
+// 把一层单件聚成“排”：行余量口径下，排＝与托盘长边平行的条带
+// （单件沿长向 x 铺开、整排沿宽向 z 叠进），因此固定按 z 带分组。
+// 此前用“唯一值较少的方向”猜分组方向，3×6 这类双向满铺网格会被误判成
+// 跨宽条带（每排长向只占一个单件长），余量恒虚高、规则空转。
 function placementRows(placements) {
   if (!placements.length) return [];
-  const uniqueX = new Set(placements.map(item => item.xMm.toFixed(3)));
-  const uniqueZ = new Set(placements.map(item => item.zMm.toFixed(3)));
-  const byZ = uniqueZ.size <= uniqueX.size;
   const groups = new Map();
   for (const item of placements) {
-    const key = byZ ? item.zMm.toFixed(3) : item.xMm.toFixed(3);
+    const key = item.zMm.toFixed(3);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   }
