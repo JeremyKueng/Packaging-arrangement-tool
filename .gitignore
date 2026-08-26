@@ -22,4 +22,6 @@ OPTIMIZATION_EXAMPLES.md
 REVIEW_INDEX.md
 
 # 模板库用户数据（不上传）
+模板库/
 server/templates.json
+server/templates.json.migrated

@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""模板库落地点：零依赖单文件服务（Python 标准库，无第三方包）。
+"""模板库共享模块：目录式存储 + 可复用 API Mixin（Python 标准库，零依赖）。
 
-同时承担两件事：
-- 静态托管仓库根目录（与 `python -m http.server` 一致），工具页面从本服务打开
-  时与 /api 同源，前端无需配置跨域；
-- 模板 CRUD：存储为与本文件同目录的 templates.json（用户数据，已被 .gitignore 排除）。
+存储形态（用户可直接在资源管理器里查看、复制、归档）：
+    模板库/
+      midpack/某方案A.json
+      pallet/某方案B.json
+      ...
 
-模板 API 逻辑封装在 TemplateApiMixin 中，launcher.py 的常驻静态服务同样混入该
-Mixin——因此双击「启动中包排列工具」打开的页面也自带同源模板接口，零配置可用。
+- 文件名 = 模板名（同名保存视为更新）；工段 = 子目录名。
+- 模板 id = "<section>/<文件名主干>"，对前端不透明。
+- 首次访问时自动迁移旧版单文件存储 server/templates.json（若存在）。
 
-启动：
-    python server/template_server.py [端口]     # 默认 8090
-然后浏览器访问 http://127.0.0.1:8090/
+API 逻辑封装在 TemplateApiMixin 中，由 launcher.py 的常驻静态服务混入——
+双击「启动中包排列工具」打开的页面即与模板接口同源，无需运行任何额外进程。
+本文件的 __main__ 入口仅用于团队局域网共享（可选，默认端口 8090）。
 
-API（载荷契约 = 工具内「复制参数 JSON」的输出结构）：
+载荷契约 = 工具内「复制参数 JSON」的输出结构：
     GET    /api/templates          模板列表（不含 payload）
     GET    /api/templates/{id}     单条详情（含 payload）
-    POST   /api/templates          新增 {"name","section","payload"}
+    POST   /api/templates          新增/同名更新 {"name","section","payload"}
     DELETE /api/templates/{id}     删除
 
 section 取值：unit / midpack / bigpack / case / pallet。
@@ -25,29 +27,65 @@ import json
 import re
 import sys
 import threading
+import urllib.parse
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STORE = Path(__file__).resolve().parent / "templates.json"
+STORE_DIR = ROOT / "模板库"
+LEGACY_STORE = Path(__file__).resolve().parent / "templates.json"
 VALID_SECTIONS = {"unit", "midpack", "bigpack", "case", "pallet"}
 _LOCK = threading.Lock()
 
-
-def _load():
-    if STORE.exists():
-        try:
-            data = json.loads(STORE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-        except Exception:
-            pass
-    return []
+_MIGRATED = False
 
 
-def _save(items):
-    STORE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+def _safe_name(name: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", str(name)).strip().strip(".")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return (cleaned or "未命名")[:60]
+
+
+def _migrate_legacy() -> None:
+    """旧版单文件 templates.json → 目录式存储；只执行一次。"""
+    global _MIGRATED
+    if _MIGRATED or not LEGACY_STORE.exists():
+        _MIGRATED = True
+        return
+    try:
+        items = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
+        if isinstance(items, list):
+            for item in items:
+                _write_file(item.get("section"), item.get("name"), item)
+    except Exception:
+        pass  # 迁移失败不影响新存储的使用
+    LEGACY_STORE.rename(LEGACY_STORE.with_suffix(".json.migrated"))
+    _MIGRATED = True
+
+
+def _write_file(section, name, data) -> str:
+    stem = _safe_name(name)
+    target = STORE_DIR / str(section)
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / f"{stem}.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return f"{section}/{stem}"
+
+
+def _load_all():
+    _migrate_legacy()
+    items = []
+    if STORE_DIR.exists():
+        for path in sorted(STORE_DIR.glob("*/*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    items.append(data)
+            except Exception:
+                continue
+    items.sort(key=lambda i: i.get("savedAt") or "", reverse=True)
+    return items
 
 
 class TemplateApiMixin:
@@ -71,7 +109,7 @@ class TemplateApiMixin:
 
     def _handle_list(self):
         with _LOCK:
-            items = _load()
+            items = _load_all()
         summary = [{k: i.get(k) for k in ("id", "section", "name", "capturedAt", "algorithmVersion")} for i in items]
         self._json(200, summary)
 
@@ -90,7 +128,7 @@ class TemplateApiMixin:
             return
         now = datetime.now(timezone.utc).isoformat()
         item = {
-            "id": f"tpl_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+            "id": "",
             "section": section,
             "name": name,
             "capturedAt": payload.get("capturedAt") or now,
@@ -99,27 +137,36 @@ class TemplateApiMixin:
             "payload": payload,
         }
         with _LOCK:
-            items = _load()
-            items.insert(0, item)
-            _save(items)
-        self._json(200, {"id": item["id"]})
+            template_id = _write_file(section, name, item)
+        item["id"] = template_id
+        # 回写真实 id，保证目录内文件自描述
+        stem = template_id.split("/", 1)[1]
+        (STORE_DIR / str(section) / f"{stem}.json").write_text(
+            json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self._json(200, {"id": template_id})
 
-    def _handle_detail(self, template_id):
+    def _handle_detail(self, raw_id):
+        template_id = urllib.parse.unquote(raw_id)
         with _LOCK:
-            item = next((i for i in _load() if i["id"] == template_id), None)
+            item = next((i for i in _load_all() if i.get("id") == template_id), None)
         if item is None:
             self._json(404, {"error": "template not found"})
         else:
             self._json(200, item)
 
-    def _handle_delete(self, template_id):
+    def _handle_delete(self, raw_id):
+        template_id = urllib.parse.unquote(raw_id)
+        parts = template_id.split("/", 1)
+        if len(parts) != 2 or parts[0] not in VALID_SECTIONS:
+            self._json(404, {"error": "template not found"})
+            return
+        path = STORE_DIR / parts[0] / f"{_safe_name(parts[1])}.json"
         with _LOCK:
-            items = _load()
-            rest = [i for i in items if i["id"] != template_id]
-            if len(rest) == len(items):
+            if not path.exists():
                 self._json(404, {"error": "template not found"})
                 return
-            _save(rest)
+            path.unlink()
         self._json(200, {"ok": True})
 
     def try_handle_api(self) -> bool:
@@ -135,17 +182,17 @@ class TemplateApiMixin:
                 self.end_headers()
                 return True
             return False
-        match = re.fullmatch(r"/api/templates/([^/]+)", path)
+        match = re.fullmatch(r"/api/templates/(.+)", path)
         if match:
-            template_id = match.group(1)
+            raw_id = match.group(1)
             if self.command == "GET":
-                self._handle_detail(template_id)
+                self._handle_detail(raw_id)
             elif self.command == "DELETE":
-                self._handle_delete(template_id)
+                self._handle_delete(raw_id)
             else:
                 self._json(405, {"error": "method not allowed"})
             return True
-        if path == "/api/templates":
+        if path.rstrip("/") == "/api/templates":
             if self.command == "GET":
                 self._handle_list()
             elif self.command == "POST":
@@ -187,6 +234,6 @@ class TemplateHandler(TemplateApiMixin, SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
-    print(f"模板库服务: http://127.0.0.1:{port}/  (存储: {STORE})")
+    print(f"模板库共享服务（局域网可选）: http://127.0.0.1:{port}/  (存储: {STORE_DIR})")
     print("Ctrl+C 停止")
     ThreadingHTTPServer(("127.0.0.1", port), TemplateHandler).serve_forever()
