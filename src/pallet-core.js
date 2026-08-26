@@ -26,7 +26,7 @@ const EPS = 1e-6;
 // 因此调用方修改 placements / options / debug 不会污染后续调用。容量是有限的 LRU，
 // 避免长期编辑不同箱规时内存无限增长。
 export const PALLET_LAYOUT_CACHE_MAX_ENTRIES = 32;
-export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v6';
+export const PALLET_ALGORITHM_VERSION = 'pallet-layout-v7';
 
 function cloneSerializable(value) {
   if (value === undefined || value === null || typeof value !== 'object') return value;
@@ -460,8 +460,11 @@ function edgeExposureLayouts(options, posture = 'normal') {
   if (edgeCount < 1 || fillColumns < 1 || maxEdgeRows < 1) return [];
 
   const sign = constraint.palletEdge === 'z+' ? 1 : -1;
-  // 分层规则三开启时，填充区需要能留出行余量；此时按“填满 → 逐列缩短”枚举，
-  // 直到某列数满足行余量（长边第一排展示排允许贴边，天然豁免）。
+  // 分层规则三开启时，填充区需要能留出行余量；按“填满 → 逐列缩短”枚举全部
+  // 缩短档位（长边第一排展示排允许贴边，天然豁免）。不能“满足行余量即停”：
+  // 次优解要求降档件数（如最优 15 → 次优 14）有独立的真实整层排法——
+  // 若枚举在第一个满足余量的列数就停，候选池里不存在降档排法，
+  // 只能从最优摆法上挖洞派生，等于没有重新满足规则。
   const wantMarginMm = options.layerRules?.enabled ? options.layerRules.minRowMarginMm : 0;
   // 端面对齐变体：缩短展示或填充的列数，让两条带的 X 向跨度一致，
   // 消除阶梯轮廓。行余量模式下逐列缩短枚举已覆盖更窄组合，不再重复加入。
@@ -518,11 +521,9 @@ function edgeExposureLayouts(options, posture = 'normal') {
           fillCount: fillRows * columns,
           layoutLabel: faceLayoutLabel('edge-exposure', edgeRows) + (flushEnds ? ' · 端面齐平' : ''),
         });
-        // 行余量模式下保持原行为：当前列数一旦满足行余量即停止继续缩短；
-        // 未启用时继续尝试其余端面组合。
-        if (!(wantMarginMm > 0)) continue;
-        const report = palletRowMarginReport(placements);
-        if (report.rows.length <= 1 || report.satisfiedFor(wantMarginMm, pallet.lengthMm)) break;
+        // 不再提前剪枝：所有缩短列数档位都进入候选池，行余量校验在上方
+        // 已逐个执行；降档排法由 buildLayerCandidates 的两档择优统一取舍，
+        // 真实整层重排永远优先于剥离派生（后者仅作无档位可枚举时的兜底）。
       }
     }
   }
