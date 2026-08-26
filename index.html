@@ -476,6 +476,7 @@
         </div>
         <button class="stage-action-link" id="dataManageBtn" type="button">预设数据管理…</button>
         <button class="secondary" id="copyParamsJsonBtn" type="button" title="复制当前工段参数 JSON：叠板工段含完整算法输入；其他工段含从单粒到大规格的全链路参数，便于粘贴给 AI 或他人排查问题">复制参数 JSON</button>
+        <button class="secondary" id="pasteParamsJsonBtn" type="button" title="粘贴他人复制的参数 JSON，跳转到对应工段并还原全部参数视图">粘贴参数 JSON…</button>
         <div class="field"><label for="lightingToggle">全局光影</label><select id="lightingToggle"><option value="on">开 · 阴影立体</option><option value="off">关 · 扁平无影</option></select></div>
         <div class="export-status" id="batchExportStatus" role="status" aria-live="polite"></div>
       </footer>
@@ -557,6 +558,19 @@
       <div class="export-status" id="presetIoStatus" role="status" aria-live="polite"></div>
       <div class="import-dialog-actions" style="margin-top:8px">
         <button class="import-cancel" id="dataManageCloseBtn" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="import-dialog" id="pasteParamsDialog" hidden role="dialog" aria-modal="true" aria-labelledby="pasteParamsTitle">
+    <div class="import-dialog-panel">
+      <h2 id="pasteParamsTitle">粘贴参数 JSON</h2>
+      <p>粘贴他人通过「复制参数 JSON」导出的内容，工具会跳转到对应工段并还原全部参数：叠板载荷还原算法输入，其他工段还原从单粒到大规格的全链路。</p>
+      <textarea id="pasteParamsText" rows="14" spellcheck="false" style="width:100%;font-family:monospace" placeholder="在此粘贴 JSON…"></textarea>
+      <div class="export-status" id="pasteParamsStatus" role="status" aria-live="polite"></div>
+      <div class="import-dialog-actions">
+        <button class="import-merge" id="applyPasteParamsBtn" type="button">应用参数</button>
+        <button class="import-cancel" id="pasteParamsCloseBtn" type="button">关闭</button>
       </div>
     </div>
   </div>
@@ -1111,6 +1125,8 @@
       outerHighlightBtn: $('outerHighlightBtn'),
       outerHighlightGranuleBtn: $('outerHighlightGranuleBtn'),
       lightingToggle: $('lightingToggle'),
+      pasteParamsDialog: $('pasteParamsDialog'), pasteParamsJsonBtn: $('pasteParamsJsonBtn'), pasteParamsCloseBtn: $('pasteParamsCloseBtn'),
+      pasteParamsText: $('pasteParamsText'), pasteParamsStatus: $('pasteParamsStatus'), applyPasteParamsBtn: $('applyPasteParamsBtn'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
@@ -6008,6 +6024,139 @@
         ok ? `已复制${isPallet() ? '叠板算法输入' : `「${{midpack:'中包',bigpack:'大包',case:'装箱'}[packagingLevel]||''}」全链路`}参数 JSON（${text.length} 字符）。` : '复制失败：浏览器拒绝了剪贴板访问。',
         ok ? 'success' : 'error'
       );
+    });
+
+    // ===== 粘贴参数 JSON：复现他人视图 =====
+    // 载荷来自「复制参数 JSON」，按 section 分流还原；还原口径与 restoreWorkspaceState 一致。
+    function pasteStatus(text, tone) {
+      ui.pasteParamsStatus.dataset.tone = tone || '';
+      ui.pasteParamsStatus.textContent = text;
+    }
+    function applyPalletOptionsToForm(options = {}) {
+      // 叠板输入监听器带 isPallet() 守卫：调用前必须已处于叠板工段。
+      // 写值后派发 input/change 事件，驱动既有监听链更新 palletDraft 并重算方案。
+      const setField = (el, value) => {
+        if (value == null || el.value === String(value)) return;
+        el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const softpack = options.packageType === 'softpack';
+      setField(ui.palletPackageType, softpack ? 'softpack' : 'case');
+      const size = options.unitSizeMm || {};
+      setField(ui.palletUnitLengthMm, size.lengthMm);
+      setField(ui.palletUnitWidthMm, size.widthMm);
+      setField(ui.palletUnitHeightMm, size.heightMm);
+      setField(ui.palletLoadHeightMm, options.loadHeightMm);
+      setField(ui.palletLayerStrategy, options.layerStrategy);
+      if (Array.isArray(options.basePattern) && options.basePattern.length) setField(ui.palletBasePattern, options.basePattern.join(''));
+      setField(ui.palletFaceConstraintEnabled, palletFaceConstraintUiValue(options.faceConstraint || {}));
+      const rules = options.layerRules || {};
+      setField(ui.palletSideLayMaxOverhangMm, rules.sideLayMaxOverhangMm);
+      setField(ui.palletMinRowMarginMm, rules.minRowMarginMm);
+      const sp = options.softpackOptions || {};
+      setField(ui.palletCornerProtectors, sp.cornerProtectorsEnabled ? 'on' : 'off');
+      setField(ui.palletCornerLossLengthMm, sp.cornerLossLengthMm);
+      setField(ui.palletCornerLossWidthMm, sp.cornerLossWidthMm);
+      setField(ui.palletAllowTopSideLay, softpack ? (sp.topSideLayMode || 'auto') : 'off');
+    }
+    // 粘贴还原分两步：
+    // ① prepareChainDrafts——先写 midpackDraft / outerDrafts。切工段时
+    //    restoreStageDraft 会用这些草稿重填表单，必须先于跳转完成；
+    //    来源没有草稿时清空本地同名草稿，避免旧状态在跳转时回灌。
+    // ② applyChainPayload——工段切换后再把载荷值逐一写入输入框，
+    //    保证最终状态与来源完全一致（不受草稿重填影响）。
+    function prepareChainDrafts(payload) {
+      const o = payload.outer || {};
+      for (const level of ['bigpack', 'case']) {
+        if (o[`${level}Draft`] && typeof o[`${level}Draft`] === 'object') {
+          outerDrafts[level] = normalizeOuterPreset(level, o[`${level}Draft`]);
+        }
+      }
+      const m = payload.midpack || {};
+      if (m.draft && typeof m.draft === 'object') midpackDraft = cloneJson(m.draft);
+      else if (payload.section === 'midpack') midpackDraft = null;
+    }
+    function applyChainPayload(payload) {
+      const g = payload.granule || {};
+      if (g.category) {
+        ui.category.value = g.category;
+        populatePresets(g.presetId);
+        if (g.presetName) ui.presetName.value = g.presetName;
+      }
+      if (g.orientation) ui.orientation.value = g.orientation;
+      if (SOFTDRAW_VARIANTS.includes(g.softdrawVariant)) ui.softdrawVariant.value = g.softdrawVariant;
+      if (HANGING_SIDE_DIRECTIONS.includes(g.hangingSideDirection)) ui.hangingSideDirection.value = g.hangingSideDirection;
+      if (ROLL_CORES.includes(g.rollCore)) ui.rollCore.value = g.rollCore;
+      if (g.rollBundle) {
+        if (ROLL_BUNDLE_MODES.includes(g.rollBundle.mode)) ui.rollBundleMode.value = g.rollBundle.mode;
+        ui.rollBundleX.value = g.rollBundle.x || 1;
+        ui.rollBundleZ.value = g.rollBundle.z || 1;
+        ui.rollBundleY.value = g.rollBundle.y || 1;
+      }
+      syncRollBundleUi();
+      if (g.customDimensionsMm && typeof g.customDimensionsMm === 'object') {
+        productSizeOverrides[ui.category.value] = normalizeProductSizeOverride(ui.category.value, g.customDimensionsMm);
+        syncProductSizeUi();
+      }
+      const m = payload.midpack || {};
+      if (m.arrangement) {
+        if (m.arrangement.rows != null) ui.rows.value = m.arrangement.rows;
+        if (m.arrangement.cols != null) ui.cols.value = m.arrangement.cols;
+        if (m.arrangement.layers != null) ui.layers.value = m.arrangement.layers;
+      }
+      if (m.gapPercent != null) { ui.gap.value = m.gapPercent; ui.gapValue.textContent = `${m.gapPercent}%`; }
+      if (typeof m.envelope === 'boolean') ui.envelope.checked = m.envelope;
+      if (m.handleSide) ui.handleSide.value = m.handleSide;
+      if (typeof m.autoRotate === 'boolean') ui.autoRotate.checked = m.autoRotate;
+    }
+    ui.pasteParamsJsonBtn.addEventListener('click', () => {
+      ui.pasteParamsText.value = '';
+      pasteStatus('');
+      ui.pasteParamsDialog.hidden = false;
+      ui.pasteParamsText.focus();
+    });
+    ui.pasteParamsCloseBtn.addEventListener('click', () => { ui.pasteParamsDialog.hidden = true; });
+    ui.applyPasteParamsBtn.addEventListener('click', () => {
+      let payload;
+      try {
+        payload = JSON.parse(ui.pasteParamsText.value);
+      } catch (err) {
+        pasteStatus(`JSON 解析失败：${err.message}`, 'error');
+        return;
+      }
+      if (!payload || typeof payload !== 'object') { pasteStatus('内容不是有效的参数 JSON。', 'error'); return; }
+      const section = payload.section;
+      if (section === 'pallet') {
+        ui.pasteParamsDialog.hidden = true;
+        // 先切工段（restoreStageDraft 会用本地草稿重填表单），再写粘贴值——
+        // 叠板输入监听器仅在叠板工段生效，顺序反了会被草稿覆盖。
+        if (!isPallet()) setWorkflowStep('pallet');
+        applyPalletOptionsToForm(normalizePalletOptions(payload.options || {}));
+        setPalletStatus('已应用粘贴的叠板参数并重算方案。', 'success');
+        return;
+      }
+      if (!['midpack', 'bigpack', 'case'].includes(section)) {
+        pasteStatus('无法识别的工段标识（section）；请确认粘贴的是本工具导出的参数 JSON。', 'error');
+        return;
+      }
+      try {
+        prepareChainDrafts(payload);
+        if (activeWorkflowStage() !== section) setWorkflowStep(section, false);
+        applyChainPayload(payload);
+      } catch (err) {
+        pasteStatus(`参数还原失败：${err.message}`, 'error');
+        return;
+      }
+      updateLevelButtons();
+      ui.pasteParamsDialog.hidden = true;
+      setWorkflowStep(section, false);
+      requestRebuild(true);
+      if (payload.algorithmVersion && payload.algorithmVersion !== PALLET_ALGORITHM_VERSION) {
+        showCopyStatus(`已应用参数；注意：来源版本 ${payload.algorithmVersion} 与当前 ${PALLET_ALGORITHM_VERSION} 不同，结果可能存在口径差异。`, 'warn');
+      } else {
+        showCopyStatus('已应用粘贴的全链路参数并跳转到对应工段。', 'success');
+      }
     });
     ui.newPalletPresetBtn.addEventListener('click', () => {
       if (!isPallet()) return;
