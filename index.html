@@ -579,7 +579,11 @@
   <div class="import-dialog" id="templateLibraryDialog" hidden role="dialog" aria-modal="true" aria-labelledby="templateLibraryTitle">
     <div class="import-dialog-panel">
       <h2 id="templateLibraryTitle">模板库</h2>
-      <p>把当前工段参数保存到后端模板库，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。需先启动模板服务：python server/template_server.py</p>
+      <p>把当前工段参数保存到后端模板库，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。服务：python server/template_server.py</p>
+      <div class="import-dialog-actions">
+        <label for="templateApiBase" style="font-size:12px;white-space:nowrap">服务地址</label>
+        <input id="templateApiBase" type="text" placeholder="留空＝与页面同源；跨域打开时填 http://127.0.0.1:8090 后回车" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px;font-family:monospace">
+      </div>
       <div class="import-dialog-actions">
         <input id="templateSaveName" type="text" placeholder="模板名称（留空自动命名）" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px">
         <button class="import-merge" id="saveTemplateBtn" type="button">保存当前工段为模板</button>
@@ -6206,8 +6210,20 @@
     });
 
     // ===== 模板库：前端目录入口 + 后端落地点 =====
-    // 后端为 server/template_server.py（Python 标准库零依赖），工具页面从该服务打开时同源访问 /api。
-    const TEMPLATE_API = '/api/templates';
+    // 后端为 server/template_server.py（Python 标准库零依赖）。
+    // 服务地址默认与页面同源；从其他方式打开工具时可在模板库里填
+    // http://127.0.0.1:8090 并回车（后端已开 CORS，跨域可用），选择持久化保存。
+    const TEMPLATE_API_KEY = 'vida-template-api-base';
+    function templateApiBase() {
+      return ($('templateApiBase').value || '').trim().replace(/\/+$/, '');
+    }
+    function loadTemplateApiBase() {
+      const saved = readStoredJson(TEMPLATE_API_KEY);
+      return typeof saved === 'string' ? saved : '';
+    }
+    function apiUrl(path) {
+      return `${templateApiBase()}/api/templates${path}`;
+    }
     const SECTION_LABELS = { midpack:'中包工段', bigpack:'大包工段', case:'装箱工段', pallet:'叠板工段' };
     function templateLibStatus(text, tone) {
       const el = $('templateLibStatus');
@@ -6215,7 +6231,7 @@
       el.textContent = text;
     }
     async function fetchTemplateList() {
-      const res = await fetch(TEMPLATE_API);
+      const res = await fetch(apiUrl(''));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     }
@@ -6243,7 +6259,7 @@
           useBtn.type = 'button'; useBtn.className = 'import-merge'; useBtn.textContent = '应用';
           useBtn.addEventListener('click', async () => {
             try {
-              const res = await fetch(`${TEMPLATE_API}/${encodeURIComponent(item.id)}`);
+              const res = await fetch(apiUrl(`/${encodeURIComponent(item.id)}`));
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const detail = await res.json();
               const error = applyParamsPayload(detail.payload);
@@ -6257,7 +6273,7 @@
           delBtn.type = 'button'; delBtn.className = 'import-cancel'; delBtn.textContent = '删除';
           delBtn.addEventListener('click', async () => {
             try {
-              const res = await fetch(`${TEMPLATE_API}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+              const res = await fetch(apiUrl(`/${encodeURIComponent(item.id)}`), { method: 'DELETE' });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               templateLibStatus('已删除。', 'success');
               await refreshTemplateList();
@@ -6274,14 +6290,24 @@
     async function refreshTemplateList() {
       try {
         renderTemplateList(await fetchTemplateList());
+        templateLibStatus('');
       } catch (err) {
         $('templateList').textContent = '';
-        templateLibStatus(`无法连接模板服务（${TEMPLATE_API}）：${err.message}。请先运行 python server/template_server.py 并从该服务地址打开本工具。`, 'error');
+        const base = templateApiBase();
+        const hint = err.message.includes('404')
+          ? `该地址没有模板服务（HTTP 404）。请运行 python server/template_server.py，并确认上方服务地址与端口一致${base ? `（当前：${base}）` : '；当前为同源模式，若页面不是从模板服务打开的，请在上方填写服务地址'}。`
+          : `无法连接模板服务：${err.message}。请确认已运行 python server/template_server.py，并在上方填写正确的服务地址。`;
+        templateLibStatus(hint, 'error');
       }
     }
     $('templateLibraryBtn').addEventListener('click', () => {
       $('templateLibraryDialog').hidden = false;
+      $('templateApiBase').value = loadTemplateApiBase();
       templateLibStatus('');
+      refreshTemplateList();
+    });
+    $('templateApiBase').addEventListener('change', () => {
+      writeStoredJson(TEMPLATE_API_KEY, templateApiBase());
       refreshTemplateList();
     });
     $('templateLibraryCloseBtn').addEventListener('click', () => { $('templateLibraryDialog').hidden = true; });
@@ -6289,7 +6315,7 @@
       const fallbackName = `${SECTION_LABELS[packagingLevel] || '工段'}模板 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
       const name = $('templateSaveName').value.trim() || fallbackName;
       try {
-        const res = await fetch(TEMPLATE_API, {
+        const res = await fetch(apiUrl(''), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, section: packagingLevel, payload: buildSectionPayload() }),
