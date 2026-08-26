@@ -462,7 +462,7 @@
           <div class="field"><label for="palletShowFaceLabels">L/W 面标识</label><select id="palletShowFaceLabels"><option value="on">显示</option><option value="off">隐藏</option></select></div>
           <div class="definition-card" id="palletDefinitionCard" aria-live="polite"></div>
           <div class="pallet-candidates" id="palletCandidates"></div>
-          <div class="preset-actions"><button class="preset-save" id="savePalletPresetBtn">保存叠板方案</button><button class="preset-copy" id="newPalletPresetBtn">新建临时方案</button><button class="preset-copy" id="copyPalletJsonBtn" type="button" title="把当前叠板参数与算法版本复制为 JSON，便于粘贴给 AI 或他人排查问题">复制参数 JSON</button></div>
+          <div class="preset-actions"><button class="preset-save" id="savePalletPresetBtn">保存叠板方案</button><button class="preset-copy" id="newPalletPresetBtn">新建临时方案</button></div>
           <div class="field"><label for="palletPresetName">叠板方案名称</label><input id="palletPresetName" type="text" maxlength="60" value="叠板临时方案"></div>
           <div class="preset-status" id="palletStatus" role="status" aria-live="polite"></div>
         </section>
@@ -475,6 +475,7 @@
           <button class="secondary" id="batchPdfBtn">批量 PDF…</button>
         </div>
         <button class="stage-action-link" id="dataManageBtn" type="button">预设数据管理…</button>
+        <button class="secondary" id="copyParamsJsonBtn" type="button" title="复制当前工段参数 JSON：叠板工段含完整算法输入；其他工段含从单粒到大规格的全链路参数，便于粘贴给 AI 或他人排查问题">复制参数 JSON</button>
         <div class="field"><label for="lightingToggle">全局光影</label><select id="lightingToggle"><option value="on">开 · 阴影立体</option><option value="off">关 · 扁平无影</option></select></div>
         <div class="export-status" id="batchExportStatus" role="status" aria-live="polite"></div>
       </footer>
@@ -1110,7 +1111,6 @@
       outerHighlightBtn: $('outerHighlightBtn'),
       outerHighlightGranuleBtn: $('outerHighlightGranuleBtn'),
       lightingToggle: $('lightingToggle'),
-      copyPalletJsonBtn: $('copyPalletJsonBtn'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
@@ -5930,17 +5930,20 @@
       setPalletStatus(`已保存“${values.name}”。`, 'success');
     }
     ui.savePalletPresetBtn.addEventListener('click', savePalletPreset);
-    // 一键复制当前叠板参数 JSON：粘贴给 AI / 他人即可精确复现同一优化输入，方便排查。
-    ui.copyPalletJsonBtn.addEventListener('click', async () => {
-      const payload = {
-        algorithmVersion: PALLET_ALGORITHM_VERSION,
-        capturedAt: new Date().toISOString(),
-        options: normalizePalletOptions(palletOptionsFromUi()),
-      };
-      const text = JSON.stringify(payload, null, 2);
+    // 全局「复制参数 JSON」（底栏，所有工段可用）：
+    // · 叠板工段 → 输出叠板算法完整输入（箱规独立于上游，与旧版行为一致）；
+    // · 其他工段 → 输出从单粒参数到中包、再到大包/装箱大规格的全链路快照，
+    //   并标注当前所在工段（section），粘贴给 AI / 他人即可复现当前输入排查问题。
+    function showCopyStatus(text, tone) {
+      ui.batchStatus.dataset.tone = tone || '';
+      ui.batchStatus.textContent = text;
+      clearTimeout(showCopyStatus._timer);
+      showCopyStatus._timer = setTimeout(() => { ui.batchStatus.textContent = ''; }, 4000);
+    }
+    async function writeClipboard(text) {
       try {
         await navigator.clipboard.writeText(text);
-        setPalletStatus(`已复制当前叠板参数 JSON（${text.length} 字符），可直接粘贴到对话/文档中。`, 'success');
+        return true;
       } catch (err) {
         // 剪贴板 API 不可用时降级为选中文本域复制。
         const ta = document.createElement('textarea');
@@ -5948,8 +5951,63 @@
         document.body.appendChild(ta); ta.select();
         const ok = document.execCommand && document.execCommand('copy');
         ta.remove();
-        setPalletStatus(ok ? '已复制当前叠板参数 JSON。' : '复制失败：浏览器拒绝了剪贴板访问。', ok ? 'success' : 'error');
+        return Boolean(ok);
       }
+    }
+    $('copyParamsJsonBtn').addEventListener('click', async () => {
+      const capturedAt = new Date().toISOString();
+      let payload;
+      if (isPallet()) {
+        payload = {
+          algorithmVersion: PALLET_ALGORITHM_VERSION,
+          capturedAt,
+          section: 'pallet',
+          options: normalizePalletOptions(palletOptionsFromUi()),
+        };
+      } else {
+        const type = ui.category.value;
+        const metrics = getMidpackMetrics();
+        const bundleSpec = metrics.bundleSpec || { count: 1 };
+        payload = {
+          algorithmVersion: PALLET_ALGORITHM_VERSION,
+          capturedAt,
+          section: packagingLevel,
+          granule: {
+            category: type,
+            presetId: ui.preset.value,
+            presetName: ui.presetName.value.trim() || null,
+            orientation: ui.orientation.value,
+            softdrawVariant: ui.softdrawVariant.value,
+            hangingSideDirection: ui.hangingSideDirection.value,
+            rollCore: ui.rollCore.value,
+            rollBundle: { mode: bundleSpec.mode || 'single', x: bundleSpec.x || 1, z: bundleSpec.z || 1, y: bundleSpec.y || 1 },
+            customDimensionsMm: currentDimensionOverride(type),
+          },
+          midpack: {
+            arrangement: { rows: metrics.r, cols: metrics.c, layers: metrics.l },
+            handleSide: ui.handleSide.value,
+            gapPercent: Number(ui.gap.value),
+            envelope: ui.envelope.checked,
+            autoRotate: ui.autoRotate.checked,
+            // metrics.d / physicalTotal 为场景单位，导出前换算回 mm。
+            unitSizeMm: metrics.d.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
+            bagSizeMm: metrics.physicalTotal.map(v => Math.round(v / SCENE_UNITS_PER_MM)),
+            countPerBag: metrics.count,
+            draft: midpackDraft ? cloneJson(midpackDraft) : null,
+          },
+          outer: {
+            bigpackDraft: cloneJson(outerDrafts.bigpack || null),
+            caseDraft: cloneJson(outerDrafts.case || null),
+            activeForm: readOuterForm(packagingLevel),
+          },
+        };
+      }
+      const text = JSON.stringify(payload, null, 2);
+      const ok = await writeClipboard(text);
+      showCopyStatus(
+        ok ? `已复制${isPallet() ? '叠板算法输入' : `「${{midpack:'中包',bigpack:'大包',case:'装箱'}[packagingLevel]||''}」全链路`}参数 JSON（${text.length} 字符）。` : '复制失败：浏览器拒绝了剪贴板访问。',
+        ok ? 'success' : 'error'
+      );
     });
     ui.newPalletPresetBtn.addEventListener('click', () => {
       if (!isPallet()) return;
