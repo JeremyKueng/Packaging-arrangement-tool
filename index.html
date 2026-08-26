@@ -462,7 +462,7 @@
           <div class="field"><label for="palletShowFaceLabels">L/W 面标识</label><select id="palletShowFaceLabels"><option value="on">显示</option><option value="off">隐藏</option></select></div>
           <div class="definition-card" id="palletDefinitionCard" aria-live="polite"></div>
           <div class="pallet-candidates" id="palletCandidates"></div>
-          <div class="preset-actions"><button class="preset-save" id="savePalletPresetBtn">保存叠板方案</button><button class="preset-copy" id="newPalletPresetBtn">新建临时方案</button></div>
+          <div class="preset-actions"><button class="preset-save" id="savePalletPresetBtn">保存叠板方案</button><button class="preset-copy" id="newPalletPresetBtn">新建临时方案</button><button class="preset-copy" id="copyPalletJsonBtn" type="button" title="把当前叠板参数与算法版本复制为 JSON，便于粘贴给 AI 或他人排查问题">复制参数 JSON</button></div>
           <div class="field"><label for="palletPresetName">叠板方案名称</label><input id="palletPresetName" type="text" maxlength="60" value="叠板临时方案"></div>
           <div class="preset-status" id="palletStatus" role="status" aria-live="polite"></div>
         </section>
@@ -624,7 +624,7 @@
     import { directionForSide, faceVector, loadFaceLabel, postureLabel, unitFacingLabel, unitOrientationDescription, packageUnitOrientationQuaternion, productOrientationQuaternion, directSpinQuaternion, rotatedSize, formatXzySize, rollUnitDims, dimsFor, productVisualScale, midpackArrangementMetrics } from './src/geometry-core.js';
     import { clampPresetNumber, outerLevelName, outerDefaults, normalizePreset, normalizeOuterPreset, mergeBuiltinOverridesPreservingExisting } from './src/preset-core.js';
     import { buildPdfEntries, groupPdfEntries, effectivePdfScope, STAGE_NAMES } from './src/pdf-entry-core.js';
-    import { optimizePalletLayout, formatPalletPlan, orientedSize, palletExposedFacesFor, getPalletLayoutCacheStats, PALLET_SIZE_MM, PALLET_HEIGHT_RANGE_MM, PALLET_LOAD_HEIGHT_RANGE_MM, PALLET_LAYOUT_CACHE_MAX_ENTRIES, PALLET_ALGORITHM_VERSION } from './src/pallet-core.js';
+    import { optimizePalletLayout, normalizePalletOptions, formatPalletPlan, orientedSize, palletExposedFacesFor, getPalletLayoutCacheStats, PALLET_SIZE_MM, PALLET_HEIGHT_RANGE_MM, PALLET_LOAD_HEIGHT_RANGE_MM, PALLET_LAYOUT_CACHE_MAX_ENTRIES, PALLET_ALGORITHM_VERSION } from './src/pallet-core.js';
     import { palletDefaults, normalizePalletPreset, capturePalletSource, isValidPalletSource } from './src/pallet-preset-core.js';
     import { safeStorageGetResult, safeStorageSet, safeStorageRemove, storageErrorMessage } from './src/storage-core.js';
     import { deriveCartonNaming } from './src/carton-naming.js';
@@ -970,6 +970,10 @@
       palletViewMode = mode;
       refreshPalletCandidateActive();
       rebuild(false);
+      // 两套排法的差异多在内层填充列，透视角度下会被前排遮挡、看似"没有变化"；
+      // 切换后自动转到俯视让排布差异一目了然，用户仍可点其它视角自由旋转。
+      moveCamera('top');
+      requestRender();
     }
 
     function refreshPalletCandidateActive() {
@@ -1106,6 +1110,7 @@
       outerHighlightBtn: $('outerHighlightBtn'),
       outerHighlightGranuleBtn: $('outerHighlightGranuleBtn'),
       lightingToggle: $('lightingToggle'),
+      copyPalletJsonBtn: $('copyPalletJsonBtn'),
       outerSourceSummary: $('outerSourceSummary'), editOuterSourceBtn: $('editOuterSourceBtn'),
       exportPresetsBtn: $('exportPresetsBtn'), importPresetsBtn: $('importPresetsBtn'), importPresetsFile: $('importPresetsFile'), presetIoStatus: $('presetIoStatus'),
       importDialog: $('importDialog'), importDialogSummary: $('importDialogSummary'), importMergeBtn: $('importMergeBtn'), importOverwriteBtn: $('importOverwriteBtn'), importCancelBtn: $('importCancelBtn'),
@@ -1282,6 +1287,15 @@
     let palletPlan = null;
     // 叠板 3D 当前查看的方案：'best'=最优解 Top 1，'runner'=次优解 Top 2。
     let palletViewMode = 'best';
+    // 调试钩子：供控制台/自动化排查叠板方案状态（只读）。
+    window.__palletDebug = {
+      get plan() { return palletPlan; },
+      get viewMode() { return palletViewMode; },
+      signature(p = palletPlan) {
+        if (!p?.ok) return String(p && p.reason);
+        return p.placements.map(i => [Math.round(i.xMm), Math.round(i.yMm), Math.round(i.zMm), i.orientation].join(',')).join('|');
+      },
+    };
 
     function isMidpack() {
       return packagingLevel === 'midpack';
@@ -5916,6 +5930,27 @@
       setPalletStatus(`已保存“${values.name}”。`, 'success');
     }
     ui.savePalletPresetBtn.addEventListener('click', savePalletPreset);
+    // 一键复制当前叠板参数 JSON：粘贴给 AI / 他人即可精确复现同一优化输入，方便排查。
+    ui.copyPalletJsonBtn.addEventListener('click', async () => {
+      const payload = {
+        algorithmVersion: PALLET_ALGORITHM_VERSION,
+        capturedAt: new Date().toISOString(),
+        options: normalizePalletOptions(palletOptionsFromUi()),
+      };
+      const text = JSON.stringify(payload, null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+        setPalletStatus(`已复制当前叠板参数 JSON（${text.length} 字符），可直接粘贴到对话/文档中。`, 'success');
+      } catch (err) {
+        // 剪贴板 API 不可用时降级为选中文本域复制。
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand && document.execCommand('copy');
+        ta.remove();
+        setPalletStatus(ok ? '已复制当前叠板参数 JSON。' : '复制失败：浏览器拒绝了剪贴板访问。', ok ? 'success' : 'error');
+      }
+    });
     ui.newPalletPresetBtn.addEventListener('click', () => {
       if (!isPallet()) return;
       palletSelection = 'temporary';
