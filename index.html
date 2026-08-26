@@ -579,10 +579,10 @@
   <div class="import-dialog" id="templateLibraryDialog" hidden role="dialog" aria-modal="true" aria-labelledby="templateLibraryTitle">
     <div class="import-dialog-panel">
       <h2 id="templateLibraryTitle">模板库</h2>
-      <p>把当前工段参数保存到后端模板库，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。服务：python server/template_server.py</p>
+      <p>把当前工段参数保存为模板，或浏览/应用/删除已有模板；「应用」与「粘贴参数 JSON」等效。模板以 JSON 文件保存在工具目录的「模板库」文件夹中，可直接查看与复制；用「启动中包排列工具」打开即自动连接，无需任何配置。</p>
       <div class="import-dialog-actions">
         <label for="templateApiBase" style="font-size:12px;white-space:nowrap">服务地址</label>
-        <input id="templateApiBase" type="text" placeholder="留空＝与页面同源；跨域打开时填 http://127.0.0.1:8090 后回车" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px;font-family:monospace">
+        <input id="templateApiBase" type="text" placeholder="留空＝自动连接（同源或本机 127.0.0.1:8090）；共享他人电脑的模板库时才需填写" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px;font-family:monospace">
       </div>
       <div class="import-dialog-actions">
         <input id="templateSaveName" type="text" placeholder="模板名称（留空自动命名）" style="flex:1;padding:6px 8px;border:1px solid var(--color-border-secondary,#ccc);border-radius:8px">
@@ -6211,7 +6211,8 @@
 
     // ===== 模板库：前端目录入口 + 后端落地点 =====
     // 后端为 server/template_server.py（Python 标准库零依赖）。
-    // 服务地址默认与页面同源；从其他方式打开工具时可在模板库里填
+    // 服务地址留空 = 自动连接：优先同源（启动器内置接口），失败则探测本机 8090；
+    // 仅在连接其它电脑的模板库时才需手动填写。
     // http://127.0.0.1:8090 并回车（后端已开 CORS，跨域可用），选择持久化保存。
     const TEMPLATE_API_KEY = 'vida-template-api-base';
     const TEMPLATE_API_FALLBACK = 'http://127.0.0.1:8090';
