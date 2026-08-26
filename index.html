@@ -1311,6 +1311,17 @@
         if (!p?.ok) return String(p && p.reason);
         return p.placements.map(i => [Math.round(i.xMm), Math.round(i.yMm), Math.round(i.zMm), i.orientation].join(',')).join('|');
       },
+      // 场景内指定角色网格的位置快照（mm→场景单位），供端到端测试断言渲染位置。
+      roles(role, prefix = false) {
+        const out = [];
+        productGroup?.traverse(node => {
+          const r = node.userData?.role;
+          if (r && (prefix ? String(r).startsWith(role) : r === role)) {
+            out.push({ x: +node.position.x.toFixed(4), y: +node.position.y.toFixed(4), z: +node.position.z.toFixed(4) });
+          }
+        });
+        return out;
+      },
     };
 
     function isMidpack() {
@@ -3715,14 +3726,27 @@
             group.add(edge);
           }
         }
-        if (isSoftpack && plan.options.softpackOptions?.cornerProtectorsEnabled) {
-          const usable = plan.options.usablePallet;
+        if (isSoftpack && plan.ok && plan.options.softpackOptions?.cornerProtectorsEnabled && plan.placements.length) {
+          // 护角跟随「排样整体轮廓」的外四角，而不是托板可用边缘：
+          // 排样未铺满或单边展示偏置时，护角应贴住实际货品外缘才符合现场用法。
+          // 轮廓取当前显示方案（最优/次优）全部单件的 X/Z 包围盒（含顶层侧倒）。
+          let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+          for (const it of plan.placements) {
+            minX = Math.min(minX, it.xMm - it.lengthMm / 2);
+            maxX = Math.max(maxX, it.xMm + it.lengthMm / 2);
+            minZ = Math.min(minZ, it.zMm - it.widthMm / 2);
+            maxZ = Math.max(maxZ, it.zMm + it.widthMm / 2);
+          }
+          const centerX = (minX + maxX) / 2 * scale;
+          const centerZ = (minZ + maxZ) / 2 * scale;
+          const halfLength = (maxX - minX) / 2 * scale;
+          const halfWidth = (maxZ - minZ) / 2 * scale;
           const cargoHeight = Math.max(0, plan.totalHeightMm - PALLET_SIZE_MM.height) * scale;
           const guardMat = new THREE.MeshStandardMaterial({ color:0x7c684c, roughness:.93, metalness:0 });
           const wing = .28, thickness = .055;
           for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-            const x = sx * usable.lengthMm * scale / 2;
-            const z = sz * usable.widthMm * scale / 2;
+            const x = centerX + sx * halfLength;
+            const z = centerZ + sz * halfWidth;
             const verticalCenter = palletHeight + cargoHeight / 2;
             const wingX = new THREE.Mesh(new THREE.BoxGeometry(wing, cargoHeight, thickness), guardMat);
             wingX.position.set(x - sx * wing / 2, verticalCenter, z); wingX.userData.role = 'pallet-corner-protector'; group.add(wingX);
