@@ -6214,6 +6214,7 @@
     // 服务地址默认与页面同源；从其他方式打开工具时可在模板库里填
     // http://127.0.0.1:8090 并回车（后端已开 CORS，跨域可用），选择持久化保存。
     const TEMPLATE_API_KEY = 'vida-template-api-base';
+    const TEMPLATE_API_FALLBACK = 'http://127.0.0.1:8090';
     function templateApiBase() {
       return ($('templateApiBase').value || '').trim().replace(/\/+$/, '');
     }
@@ -6291,11 +6292,25 @@
       try {
         renderTemplateList(await fetchTemplateList());
         templateLibStatus('');
+        return;
       } catch (err) {
+        // 同源模式失败：自动探测本机默认端口上独立运行的模板服务，命中即静默接入
+        if (!templateApiBase()) {
+          try {
+            const probe = await fetch(`${TEMPLATE_API_FALLBACK}/api/templates`, { headers: { Accept: 'application/json' } });
+            if (probe.ok) {
+              $('templateApiBase').value = TEMPLATE_API_FALLBACK;
+              writeStoredJson(TEMPLATE_API_KEY, TEMPLATE_API_FALLBACK);
+              renderTemplateList(await fetchTemplateList());
+              templateLibStatus(`已自动连接本机模板服务（${TEMPLATE_API_FALLBACK}）`);
+              return;
+            }
+          } catch { /* 本机也没有服务，走下方错误提示 */ }
+        }
         $('templateList').textContent = '';
         const base = templateApiBase();
         const hint = err.message.includes('404')
-          ? `该地址没有模板服务（HTTP 404）。请运行 python server/template_server.py，并确认上方服务地址与端口一致${base ? `（当前：${base}）` : '；当前为同源模式，若页面不是从模板服务打开的，请在上方填写服务地址'}。`
+          ? `未发现模板服务（HTTP 404）。请先用「启动中包排列工具」打开本页面${base ? `；若使用独立模板服务，请确认上方地址与端口一致（当前：${base}）` : '，或运行 python server/template_server.py 后在上方填写服务地址'}。`
           : `无法连接模板服务：${err.message}。请确认已运行 python server/template_server.py，并在上方填写正确的服务地址。`;
         templateLibStatus(hint, 'error');
       }

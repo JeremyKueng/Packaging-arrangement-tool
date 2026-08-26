@@ -6,6 +6,9 @@
   时与 /api 同源，前端无需配置跨域；
 - 模板 CRUD：存储为与本文件同目录的 templates.json（用户数据，已被 .gitignore 排除）。
 
+模板 API 逻辑封装在 TemplateApiMixin 中，launcher.py 的常驻静态服务同样混入该
+Mixin——因此双击「启动中包排列工具」打开的页面也自带同源模板接口，零配置可用。
+
 启动：
     python server/template_server.py [端口]     # 默认 8090
 然后浏览器访问 http://127.0.0.1:8090/
@@ -47,9 +50,12 @@ def _save(items):
     STORE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-class TemplateHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(ROOT), **kwargs)
+class TemplateApiMixin:
+    """模板 CRUD 请求处理；宿主 Handler 必须是 SimpleHTTPRequestHandler 子类。
+
+    try_handle_api() 命中 /api/templates* 时写出响应并返回 True，
+    未命中返回 False 交回静态文件流程。
+    """
 
     def _json(self, code, obj):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -63,36 +69,13 @@ class TemplateHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+    def _handle_list(self):
+        with _LOCK:
+            items = _load()
+        summary = [{k: i.get(k) for k in ("id", "section", "name", "capturedAt", "algorithmVersion")} for i in items]
+        self._json(200, summary)
 
-    def do_GET(self):
-        if self.path == "/api/templates":
-            with _LOCK:
-                items = _load()
-            summary = [{k: i.get(k) for k in ("id", "section", "name", "capturedAt", "algorithmVersion")} for i in items]
-            self._json(200, summary)
-            return
-        match = re.fullmatch(r"/api/templates/([^/]+)", self.path)
-        if match:
-            with _LOCK:
-                item = next((i for i in _load() if i["id"] == match.group(1)), None)
-            if item is None:
-                self._json(404, {"error": "template not found"})
-            else:
-                self._json(200, item)
-            return
-        super().do_GET()
-
-    def do_POST(self):
-        if self.path != "/api/templates":
-            self._json(404, {"error": "not found"})
-            return
+    def _handle_create(self):
         length = int(self.headers.get("Content-Length") or 0)
         try:
             data = json.loads(self.rfile.read(length) or b"{}")
@@ -121,12 +104,15 @@ class TemplateHandler(SimpleHTTPRequestHandler):
             _save(items)
         self._json(200, {"id": item["id"]})
 
-    def do_DELETE(self):
-        match = re.fullmatch(r"/api/templates/([^/]+)", self.path)
-        if not match:
-            self._json(404, {"error": "not found"})
-            return
-        template_id = match.group(1)
+    def _handle_detail(self, template_id):
+        with _LOCK:
+            item = next((i for i in _load() if i["id"] == template_id), None)
+        if item is None:
+            self._json(404, {"error": "template not found"})
+        else:
+            self._json(200, item)
+
+    def _handle_delete(self, template_id):
         with _LOCK:
             items = _load()
             rest = [i for i in items if i["id"] != template_id]
@@ -135,6 +121,65 @@ class TemplateHandler(SimpleHTTPRequestHandler):
                 return
             _save(rest)
         self._json(200, {"ok": True})
+
+    def try_handle_api(self) -> bool:
+        """处理 /api/templates* 请求；命中返回 True（响应已写出）。"""
+        path = self.path
+        if self.command == "OPTIONS":
+            if path.startswith("/api/templates"):
+                self.send_response(204)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return True
+            return False
+        match = re.fullmatch(r"/api/templates/([^/]+)", path)
+        if match:
+            template_id = match.group(1)
+            if self.command == "GET":
+                self._handle_detail(template_id)
+            elif self.command == "DELETE":
+                self._handle_delete(template_id)
+            else:
+                self._json(405, {"error": "method not allowed"})
+            return True
+        if path == "/api/templates":
+            if self.command == "GET":
+                self._handle_list()
+            elif self.command == "POST":
+                self._handle_create()
+            else:
+                self._json(405, {"error": "method not allowed"})
+            return True
+        return False
+
+
+class TemplateHandler(TemplateApiMixin, SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def do_GET(self):
+        if self.try_handle_api():
+            return
+        super().do_GET()
+
+    def do_POST(self):
+        if self.try_handle_api():
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_DELETE(self):
+        if self.try_handle_api():
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_OPTIONS(self):
+        if self.try_handle_api():
+            return
+        self.send_response(204)
+        self.end_headers()
 
     def log_message(self, fmt, *args):  # 安静模式：不刷屏
         pass

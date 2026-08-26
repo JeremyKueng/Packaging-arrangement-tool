@@ -15,6 +15,13 @@ from typing import Optional
 
 
 TOOL_DIR = Path(__file__).resolve().parent
+
+# 模板库 API 与独立模板服务共用同一实现；启动器静态服务混入后，
+# 双击打开的页面即与 /api/templates 同源，无需任何配置。
+sys.path.insert(0, str(TOOL_DIR / "server"))
+from template_server import TemplateApiMixin
+
+
 TEMP_DIR = Path(tempfile.gettempdir())
 INSTANCE_KEY = hashlib.sha1(str(TOOL_DIR).encode("utf-8")).hexdigest()[:12]
 PREFERRED_PORT = 56102
@@ -36,12 +43,13 @@ REQUIRED_FILES = (
     TOOL_DIR / "src" / "pallet-core.js",
     TOOL_DIR / "src" / "pallet-preset-core.js",
     TOOL_DIR / "src" / "storage-core.js",
+    TOOL_DIR / "server" / "template_server.py",
     TOOL_DIR / "assets" / "vinda-logo.png",
     TOOL_DIR / "assets" / "fonts" / "cn-subset.ttf",
 )
 
 
-class QuietHandler(http.server.SimpleHTTPRequestHandler):
+class QuietHandler(TemplateApiMixin, http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         pass
 
@@ -51,6 +59,26 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
         super().end_headers()
+
+    def do_GET(self) -> None:
+        if self.try_handle_api():
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        if self.try_handle_api():
+            return
+        self.send_error(404)
+
+    def do_DELETE(self) -> None:
+        if self.try_handle_api():
+            return
+        self.send_error(404)
+
+    def do_OPTIONS(self) -> None:
+        if not self.try_handle_api():
+            self.send_response(204)
+            self.end_headers()
 
 
 class ReusableServer(socketserver.ThreadingTCPServer):
