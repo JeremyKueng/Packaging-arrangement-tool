@@ -24,6 +24,24 @@
 
 开发与验证：安装 Node.js 后运行 `npm test`。本地启动不依赖 Node.js，仅依赖 Python 3 和现代浏览器。
 
+## 工程约定（依赖与持久化）
+
+### 运行时依赖：`vendor/` 是权威拷贝
+
+- 页面运行时经 `importmap` 引用的 `vendor/three.module.js`、`vendor/OrbitControls.js`、`vendor/RoundedBoxGeometry.js`、`vendor/jspdf.umd.min.js` 是**唯一权威运行时依赖**，离线启动器与纯静态部署都读它们。
+- `package.json` 中的 `three` / `jspdf` **仅服务开发、测试与基准脚本**（`npm test`、`npm run benchmark:pallet`），不参与页面运行。
+- **升级约定**：升级任一脚本库时，必须同步更新 `vendor/` 拷贝与 `package.json` 版本号，并在浏览器实测一次（加载 → 三维渲染 → PNG/PDF 导出），防止两处版本漂移。
+
+### 持久化边界：预设与模板走两套机制，互不混用
+
+| 数据 | 位置 | 键 / 路径 | 生命周期 |
+|------|------|-----------|----------|
+| 中包/外包装/叠板预设、产品尺寸覆盖、主题/抽屉偏好 | 浏览器 localStorage | `vida-midpack-presets-v1`、`vida-outer-presets-v1`、`vida-pallet-presets-v1`、`vida-product-size-overrides-v1`、`vida-rotation-direction-v1`、`vida-ui-theme`、`vida-ui-inspector`（按 PocketBay 用户隔离） | 随浏览器，导入/导出 JSON 可迁移 |
+| 模板库 | 本地目录文件 | `模板库/<工段>/<名称>.json`（API 内置于启动器常驻服务） | 随文件夹，可在资源管理器查看/复制/归档，不入库 |
+
+注意：模板只存「当前工段参数 + 算法版本」，应用时校验版本；预设 JSON 是另一套全链路载荷。两者不要互相兜底。
+
+
 当前首版包含：
 
 - 纸手帕、软抽、卫卷三类单粒模型；软抽可切换“普通软抽 / 悬挂式底抽”，悬挂式底抽从包体顶面完整边缘以三角余量收拢至固定高度的柔性双孔薄膜提手，抽取开口与封线位于底面；提手不计入单包高度、排列步距或容器尺寸，装入中包、大包或纸箱时自动折转 90° 贴伏；卫卷可切换有芯与无芯形态；有芯卫卷支持单卷、4卷膜包（2×2×1）、6卷膜包（2×3×1）及自定义 X×Z×Y 组合小包，中包按小包数量排列并同步汇总折合卷数
