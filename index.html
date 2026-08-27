@@ -4,242 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>中包动态排列工具</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --blue: #175cd3;
-      --blue-strong: #0b4ab6;
-      --ink: #10233f;
-      --muted: #637083;
-      --line: #dce4ee;
-      --panel: rgba(255, 255, 255, .95);
-      --bg: #eef3f8;
-      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    }
-    * { box-sizing: border-box; }
-    [hidden] { display: none !important; }
-    html { height: 100%; }
-    body { margin: 0; color: var(--ink); background: var(--bg); overflow: hidden; height: 100%; }
-    button, input, select { font: inherit; }
-    button { cursor: pointer; }
-    .app { height: 100%; display: grid; grid-template-columns: 330px minmax(0, 1fr); }
-    .sidebar {
-      position: relative; z-index: 3; overflow: auto; padding: 22px 20px 28px;
-      background: var(--panel); border-right: 1px solid var(--line); box-shadow: 8px 0 28px rgba(26, 46, 72, .07);
-    }
-    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-    .brand-mark { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800; letter-spacing: -.04em; background: linear-gradient(145deg, #1266dc, #0b3e9c); box-shadow: 0 8px 20px rgba(23, 92, 211, .24); }
-    h1 { font-size: 19px; line-height: 1.2; margin: 0 0 4px; }
-    .subtitle { margin: 0; color: var(--muted); font-size: 12px; }
-    .pb-user { display: flex; align-items: center; gap: 9px; margin: 4px 0 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #f7faff; }
-    .pb-user[hidden] { display: none; }
-    .pb-user img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: #e2ebf5; flex: 0 0 auto; }
-    .pb-user .pb-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-    .pb-user .pb-name { font-size: 12.5px; font-weight: 700; color: #2b3a52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pb-user .pb-plan { font-size: 10.5px; color: #708096; }
-    .pb-user button { margin-left: auto; border: 0; background: transparent; color: var(--blue); font-size: 12px; cursor: pointer; flex: 0 0 auto; }
-    .pb-user button:hover { text-decoration: underline; }
-    .section { padding: 16px 0; border-top: 1px solid var(--line); }
-    .section-title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 11px; font-size: 12px; font-weight: 750; color: #41516a; letter-spacing: .08em; text-transform: uppercase; }
-    .field { display: grid; gap: 6px; margin-top: 11px; }
-    label { font-size: 12px; color: #526076; }
-    select, input[type="number"], input[type="text"] { width: 100%; height: 38px; border: 1px solid #cfd9e5; border-radius: 8px; color: var(--ink); background: #fff; padding: 0 10px; outline: none; }
-    select:focus, input:focus { border-color: #5b92e8; box-shadow: 0 0 0 3px rgba(23, 92, 211, .10); }
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 9px; background: #e9eff7; }
-    .segmented button { height: 32px; border: 0; border-radius: 7px; color: #607087; background: transparent; font-size: 12px; }
-    .segmented button.active { color: #fff; background: var(--blue); box-shadow: 0 3px 10px rgba(23, 92, 211, .25); }
-    .workflow-steps { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px; }
-    .workflow-steps button { min-width: 0; height: 42px; padding: 0 4px; border: 1px solid #d3deea; border-radius: 8px; color: #5a6a80; background: #fff; font-size: 11px; line-height: 1.15; }
-    .workflow-steps button.active { border-color: var(--blue); color: #fff; background: var(--blue); box-shadow: 0 4px 12px rgba(23,92,211,.20); }
-    .workflow-note { margin-top: 9px; color: #637083; font-size: 11px; line-height: 1.5; }
-    .workflow-path { margin: 9px 0 2px; padding: 8px 10px; border: 1px solid #d8e4f1; border-radius: 8px; color: #1f4f86; background: #f7faff; font-size: 11px; line-height: 1.5; }
-    .workflow-path b { color: var(--blue); }
-    #workflowControl { margin-top: 14px; }
-    .orientation-slot:empty, .definition-slot:empty, .outer-editor-slot:empty { display: none; }
-    .stage-action-bar { padding: 16px 0 4px; border-top: 1px solid var(--line); margin-top: 6px; }
-    .stage-action-row { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 8px; margin-top: 9px; }
-    .stage-action-row .secondary { min-width: 0; padding: 0 6px; white-space: nowrap; line-height: 1; }
-    .stage-action-link { width: 100%; margin-top: 10px; height: 30px; border: 0; border-radius: 7px; color: #5a6a80; background: transparent; font-size: 12px; text-decoration: underline; }
-    .stage-action-link:hover { color: var(--blue); }
-    .view-settings-panel { width: min(380px, 100%); }
-    #batchPdfDialog { padding: 16px; overflow: hidden; }
-    .batch-pdf-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 18px; border-bottom: 1px solid #dce4ee; }
-    .batch-pdf-header h2, .batch-pdf-header p { margin: 0; }
-    .batch-pdf-header p { margin-top: 3px; font-size: 12px; color: #708096; }
-    .batch-pdf-header button { height: 34px; padding: 0 16px; border: 1px solid #cbd7e5; border-radius: 8px; color: #31435e; background: #fff; }
-    .batch-pdf-workspace { min-height: 0; display: grid; grid-template-columns: minmax(360px, 420px) minmax(0, 1fr); overflow: hidden; }
-    .batch-pdf-sidebar { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-right: 1px solid #dce4ee; background: #f7f9fc; overflow: hidden; }
-    .batch-scope-panel { padding: 14px 16px; border-bottom: 1px solid #dce4ee; background: #fff; }
-    .batch-entry-panel { min-height: 0; display: flex; flex-direction: column; padding: 12px; overflow: hidden; }
-    .batch-section-title { margin: 0 0 8px; font-size: 13px; font-weight: 750; color: #41516a; }
-    .batch-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
-    .batch-checks label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #31435e; cursor: pointer; }
-    .batch-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-    .batch-actions button { flex: 0 0 auto; width: auto; min-width: 92px; height: 34px; padding: 0 14px; white-space: nowrap; line-height: 1; }
-    .batch-summary { flex: 1 1 auto; min-width: 0; color: #637083; font-size: 12px; }
-    .batch-entry-list { flex: 1; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; display: grid; gap: 6px; margin-top: 6px; padding: 2px; }
-    .batch-entry { border: 1px solid #dce4ee; border-radius: 8px; background: #fbfdff; }
-    .batch-entry-head { display: grid; grid-template-columns: 30px 30px 28px 1fr 46px; gap: 6px; align-items: center; padding: 6px 8px; }
-    .batch-entry-head button { height: 26px; border: 1px solid #cbd7e5; border-radius: 6px; color: #41516a; background: #fff; font-size: 12px; padding: 0; }
-    .batch-entry-head button:disabled { opacity: .35; cursor: default; }
-    .batch-entry-head input[type="checkbox"] { width: 16px; height: 16px; }
-    .batch-entry-head input[type="text"] { height: 30px; }
-    .batch-entry-body { display: grid; grid-template-columns: 1fr; gap: 7px; padding: 0 8px 9px 102px; }
-    .batch-entry-body input { height: 30px; font-size: 12px; }
-    .batch-entry-body textarea { min-height: 92px; resize: vertical; line-height: 1.55; font-size: 12px; padding: 8px 10px; border: 1px solid #cfd9e5; border-radius: 8px; color: var(--ink); background: #fff; outline: none; }
-    .batch-entry-muted { opacity: .55; }
-    .batch-pdf-preview-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr); overflow: hidden; background: #e8edf3; }
-    .batch-preview-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #d4dde8; background: #fff; }
-    .batch-preview-toolbar #batchPdfPreviewStatus { flex: 1; margin: 0; }
-    .batch-preview-toolbar button { width: auto; height: 34px; padding: 0 14px; }
-    .batch-preview { display: block; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: #dfe5ec; }
-    @media (max-width: 1000px) {
-      .import-dialog-panel.batch-pdf-panel { height: min(92vh, calc(100vh - 32px)); }
-      .batch-pdf-workspace { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-      .batch-pdf-sidebar { border-right: 0; border-bottom: 1px solid #dce4ee; grid-template-rows: auto auto; }
-      .batch-entry-list { max-height: 30vh; }
-    }
-    .source-summary { margin-top: 9px; padding: 9px 10px; border: 1px solid #d8e4f1; border-radius: 8px; color: #41516a; background: #f7faff; font-size: 11px; line-height: 1.5; white-space: pre-line; }
-    .source-summary b { color: #1f4f86; }
-    .source-edit { width: auto; margin-top: 7px; padding: 0 10px; }
-    .carton-formal-name { margin-top: 11px; padding: 10px; border: 1px solid #b9d0ee; border-radius: 9px; background: #f3f8ff; }
-    .carton-formal-name-label { color: #526076; font-size: 11px; }
-    .carton-formal-name-value { margin-top: 4px; color: #174f93; font-size: 12px; font-weight: 750; line-height: 1.5; overflow-wrap: anywhere; }
-    .carton-formal-name-meta { margin-top: 4px; color: #708096; font-size: 10px; line-height: 1.45; }
-    .carton-formal-name .field { margin-top: 8px; }
-    .range-head { display: flex; justify-content: space-between; align-items: center; }
-    .range-value { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--blue); font-weight: 700; }
-    input[type="range"] { width: 100%; accent-color: var(--blue); }
-    .check-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 11px; font-size: 12px; color: #526076; }
-    .switch { position: relative; width: 38px; height: 22px; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .switch span { position: absolute; inset: 0; border-radius: 999px; background: #cbd5e1; transition: .2s; }
-    .switch span:after { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: .2s; }
-    .switch input:checked + span { background: var(--blue); }
-    .switch input:checked + span:after { transform: translateX(16px); }
-    .primary { width: 100%; height: 42px; border: 0; border-radius: 9px; color: #fff; font-weight: 700; background: var(--blue); box-shadow: 0 8px 20px rgba(23, 92, 211, .20); }
-    .primary:hover { background: var(--blue-strong); }
-    .secondary { width: 100%; height: 38px; border: 1px solid #cbd7e5; border-radius: 8px; color: #31435e; background: #fff; }
-    .preset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-    .preset-actions button { min-height: 36px; border-radius: 8px; font-size: 12px; font-weight: 650; }
-    .preset-save { border: 0; color: #fff; background: var(--blue); }
-    .preset-save:hover { background: var(--blue-strong); }
-    .preset-copy, .preset-restore { border: 1px solid #cbd7e5; color: #31435e; background: #fff; }
-    .preset-delete { border: 1px solid #efc1c1; color: #b42318; background: #fff8f7; }
-    .preset-status { min-height: 17px; margin-top: 8px; color: #708096; font-size: 11px; line-height: 1.45; }
-    .preset-status[data-tone="success"] { color: #16805b; }
-    .preset-status[data-tone="warn"] { color: #b15c08; }
-    .preset-status[data-tone="error"] { color: #b42318; }
-    .definition-card { margin-top: 10px; padding: 10px 11px; border: 1px solid #d8e4f1; border-radius: 9px; background: #f6f9fd; color: #536077; font-size: 11px; line-height: 1.55; }
-    .pallet-candidates { margin-top: 8px; display: grid; gap: 6px; }
-    .pallet-candidate { padding: 7px 9px; border: 1px solid #d8e4f1; border-radius: 8px; background: #fff; color: #31435e; font-size: 11px; font-weight: 600; cursor: pointer; }
-    .pallet-candidate:hover { border-color: var(--blue); }
-    .pallet-candidate[data-active="1"] { border-color: var(--blue); background: #eef5ff; color: var(--blue-strong); box-shadow: inset 3px 0 0 var(--blue); }
-    .definition-card strong { display: block; margin-bottom: 3px; color: #1f4f86; font-size: 11px; }
-    .definition-card p { margin: 2px 0; }
-    .export-status { min-height: 17px; margin-top: 8px; color: #708096; font-size: 11px; line-height: 1.45; }
-    .export-status[data-tone="success"] { color: #16805b; }
-    .export-status[data-tone="error"] { color: #b42318; }
-    button:disabled { cursor: wait; opacity: .62; }
-    .stage { min-width: 0; position: relative; background: radial-gradient(circle at 50% 36%, #ffffff 0, #eef4f9 45%, #dfe8f1 100%); }
-    #viewport { width: 100%; height: 100%; display: block; touch-action: none; }
-    .topbar { position: absolute; left: 22px; right: 22px; top: 18px; z-index: 2; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
-    .summary, .viewbar { pointer-events: auto; background: rgba(255,255,255,.86); border: 1px solid rgba(200,211,224,.9); box-shadow: 0 8px 24px rgba(29,50,76,.08); backdrop-filter: blur(12px); }
-    .summary { min-width: 260px; padding: 13px 15px; border-radius: 12px; }
-    .summary-title { font-size: 15px; font-weight: 750; margin-bottom: 5px; }
-    .summary-meta { display: flex; gap: 14px; color: #5c6b80; font-size: 12px; }
-    .summary-meta b { color: var(--blue); }
-    .viewbar { display: flex; gap: 4px; padding: 4px; border-radius: 10px; }
-    .viewbar button { min-width: 44px; height: 32px; border: 0; border-radius: 7px; color: #536278; background: transparent; font-size: 12px; }
-    .viewbar button:hover { color: var(--blue); background: #eaf1fb; }
-    .viewbar button[aria-pressed="true"] { color: #fff; background: var(--blue); }
-    .viewbar button[data-case-control] { min-width: 72px; padding: 0 9px; }
-    .hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 12px; border: 1px solid rgba(203,215,229,.9); border-radius: 999px; color: #64748b; background: rgba(255,255,255,.82); backdrop-filter: blur(10px); font-size: 11px; pointer-events: none; }
-    .axis-key { position: absolute; right: 22px; bottom: 20px; display: flex; gap: 10px; color: #5c6b80; font-size: 11px; }
-    .axis-key span:before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
-    .axis-key .x:before { background: #ea4335; } .axis-key .y:before { background: #34a853; } .axis-key .z:before { background: #4285f4; }
-    .axis-key .handle:before { background: #12a66a; } .axis-key .bottom:before { background: #f28c28; }
-    .pallet-metric-board {
-      position: absolute;
-      left: 22px;
-      bottom: 58px;
-      z-index: 2;
-      width: min(324px, calc(100% - 44px));
-      padding: 10px;
-      border: 1px solid rgba(190, 207, 225, .95);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, .90);
-      box-shadow: 0 8px 24px rgba(29, 50, 76, .11);
-      backdrop-filter: blur(12px);
-      pointer-events: none;
-    }
-    .pallet-metric-board[hidden] { display: none; }
-    .pallet-metric-title { margin: 0 0 7px; color: #1f4f86; font-size: 12px; font-weight: 750; }
-    .pallet-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .pallet-metric-wide { grid-column: 1 / -1; }
-    .pallet-metric { min-width: 0; padding: 6px 8px; border: 1px solid #dce6f1; border-radius: 8px; background: rgba(247, 250, 254, .92); }
-    .pallet-metric-label { overflow: hidden; color: #637083; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-    .pallet-metric-value { margin-top: 2px; color: #175cd3; font-size: 14px; font-weight: 750; line-height: 1.2; font-variant-numeric: tabular-nums; }
-    .pallet-metric-board[data-invalid="true"] .pallet-metric-value { color: #8a98aa; }
-    .pallet-result-toggle { cursor: pointer; user-select: none; }
-    .pallet-result-toggle::after { content: ' ▾ 收起'; color: #637083; font-size: 11px; font-weight: 400; }
-    .definition-card.collapsed .pallet-result-toggle::after { content: ' ▸ 展开'; }
-    .definition-card.collapsed p { display: none; }
-    .webgl-fallback { position: absolute; inset: 20px; z-index: 20; display: grid; place-content: center; gap: 10px; padding: 28px; border: 1px solid #e1a93c; border-radius: 16px; color: #5a4215; background: rgba(255, 249, 232, .96); box-shadow: 0 12px 30px rgba(92, 70, 22, .12); text-align: center; }
-    .webgl-fallback[hidden] { display: none; }
-    .webgl-fallback h2 { margin: 0; color: #805b0a; font-size: 18px; }
-    .webgl-fallback p { max-width: 520px; margin: 0; line-height: 1.55; }
-    .webgl-fallback .fallback-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
-    .webgl-fallback .fallback-warning { color: #a23b16; font-size: 12px; }
-    .direction-note { margin-top: 7px; color: #77859a; font-size: 11px; line-height: 1.45; }
-    .file-launch-notice { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; padding: 24px; background: #edf4f9; }
-    .file-launch-notice[hidden] { display: none; }
-    .file-launch-panel { width: min(520px, 100%); padding: 28px; border: 1px solid #c8d7e8; border-radius: 16px; background: #fff; box-shadow: 0 18px 55px rgba(31,63,104,.16); color: #24364f; }
-    .file-launch-panel h2 { margin: 0 0 12px; color: #174f93; font-size: 24px; }
-    .file-launch-panel p { margin: 8px 0; line-height: 1.65; }
-    .file-launch-panel code { display: inline-block; padding: 2px 6px; border-radius: 5px; background: #eef4fb; color: #174f93; }
-    .import-dialog { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(16, 35, 63, .42); }
-    .import-dialog[hidden] { display: none; }
-    .import-dialog-panel { width: min(480px, 100%); padding: 24px; border-radius: 14px; background: #fff; box-shadow: 0 18px 55px rgba(31,63,104,.30); color: #24364f; }
-    /* 批量 PDF 弹窗：横屏双栏，覆盖通用 .import-dialog-panel 的窄宽/内边距（放通用规则之后，specificity 更高）。 */
-    .import-dialog-panel.batch-pdf-panel {
-      box-sizing: border-box;
-      width: min(1500px, calc(100vw - 32px));
-      max-width: none;
-      height: min(920px, calc(100vh - 32px));
-      max-height: none;
-      padding: 0;
-      overflow: hidden;
-      display: grid;
-      grid-template-rows: 64px minmax(0, 1fr);
-    }
-    .import-dialog-panel.batch-pdf-panel .batch-pdf-header h2 { margin: 0; font-size: 20px; }
-    .import-dialog-panel.batch-pdf-panel .batch-pdf-header p { margin: 3px 0 0; font-size: 12px; color: #708096; }
-    .import-dialog-panel h2 { margin: 0 0 10px; color: #174f93; font-size: 20px; }
-    .import-dialog-panel p { margin: 0 0 16px; color: #41516a; font-size: 13px; line-height: 1.6; white-space: pre-line; }
-    .import-dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .import-dialog-actions button { height: 40px; border-radius: 8px; font-size: 13px; font-weight: 650; }
-    .import-dialog-actions .import-merge { border: 0; color: #fff; background: var(--blue); }
-    .import-dialog-actions .import-merge:hover { background: var(--blue-strong); }
-    .import-dialog-actions .import-overwrite { border: 1px solid #efc1c1; color: #b42318; background: #fff8f7; }
-    .import-dialog-actions .import-cancel { grid-column: 1 / -1; border: 1px solid #cbd7e5; color: #31435e; background: #fff; }
-    .debug-stats-btn { position: fixed; left: 22px; bottom: 20px; z-index: 60; height: 34px; padding: 0 12px; border: 1px solid #cbd7e5; border-radius: 8px; color: #31435e; background: rgba(255,255,255,.92); font-size: 12px; box-shadow: 0 6px 18px rgba(29,50,76,.12); }
-    .debug-stats-btn[hidden] { display: none; }
-    @media (max-width: 780px) {
-      body { overflow: auto; }
-      .app { min-height: 100vh; height: auto; grid-template-columns: 1fr; grid-template-rows: auto 68vh; }
-      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
-      .stage { min-height: 520px; }
-      .topbar { left: 12px; right: 12px; top: 12px; gap: 8px; }
-      .summary { min-width: 0; }
-      .summary-meta { display: grid; gap: 2px; }
-      .viewbar { display: grid; grid-template-columns: repeat(2, 1fr); }
-      .hint { display: none; }
-      .pallet-metric-board { left: 12px; bottom: 52px; width: min(324px, calc(100% - 24px)); }
-    }
-  </style>
+  <link rel="stylesheet" href="./styles/app.css">
+  <script>
+    // 防闪烁：首帧渲染前应用已保存（或系统）主题
+    try {
+      var _t = localStorage.getItem('vida-ui-theme');
+      if (_t !== 'dark' && _t !== 'light') {
+        _t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.dataset.theme = _t;
+    } catch (e) { document.documentElement.dataset.theme = 'light'; }
+  </script>
   <script type="importmap">
     {"imports":{"three":"./vendor/three.module.js"}}
   </script>
@@ -261,6 +36,10 @@
       <div class="brand">
         <div class="brand-mark">3D</div>
         <div><h1>中包动态排列工具</h1><p class="subtitle">单粒形态 · 组合阵列 · 多角度查看</p></div>
+        <button class="theme-toggle" id="themeToggleBtn" type="button" title="切换深浅色主题" aria-label="切换深浅色主题">
+          <svg id="themeIconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
       </div>
       <div class="pb-user" id="pbUser" hidden>
         <img id="pbAvatar" alt="" hidden>
@@ -505,18 +284,29 @@
         </div>
       </section>
       <div class="axis-key"><span class="handle" id="handleLegend">手挽耳</span><span class="bottom" id="bottomLegend">袋底端</span><span class="x" id="xLegend">排数 X</span><span class="y" id="yLegend">层数 Y</span><span class="z" id="zLegend">每排包数 Z</span></div>
-      <section class="pallet-metric-board" id="palletMetricBoard" hidden aria-live="polite" aria-label="叠板指标看板">
-        <div class="pallet-metric-title" id="palletMetricTitle">叠板结果看板</div>
-        <div class="pallet-metric-grid">
-          <div class="pallet-metric"><div class="pallet-metric-label">每层件数</div><div class="pallet-metric-value" id="palletMetricItemsPerLayer">—</div></div>
-          <div class="pallet-metric"><div class="pallet-metric-label">叠放层数</div><div class="pallet-metric-value" id="palletMetricLayers">—</div></div>
-          <div class="pallet-metric"><div class="pallet-metric-label">总数量</div><div class="pallet-metric-value" id="palletMetricTotalCount">—</div></div>
-          <div class="pallet-metric"><div class="pallet-metric-label">平面率</div><div class="pallet-metric-value" id="palletMetricSurfaceRate">—</div></div>
-          <div class="pallet-metric"><div class="pallet-metric-label">满板率</div><div class="pallet-metric-value" id="palletMetricFullRate">—</div></div>
-          <div class="pallet-metric"><div class="pallet-metric-label">带板高度</div><div class="pallet-metric-value" id="palletMetricTotalHeight">—</div></div>
-          <div class="pallet-metric pallet-metric-wide"><div class="pallet-metric-label">台板剩余量（长 / 宽 / 高）</div><div class="pallet-metric-value" id="palletMetricRemaining">—</div></div>
-        </div>
-      </section>
+      <button class="inspector-tab" id="inspectorTab" type="button" aria-expanded="false" aria-controls="inspectorPanel">检查器</button>
+      <aside class="inspector-panel" id="inspectorPanel" aria-label="检查器">
+        <section class="pallet-metric-board" id="palletMetricBoard" hidden aria-live="polite" aria-label="叠板指标看板">
+          <div class="pallet-metric-title" id="palletMetricTitle">叠板结果看板</div>
+          <div class="pallet-metric-grid">
+            <div class="pallet-metric"><div class="pallet-metric-label">每层件数</div><div class="pallet-metric-value" id="palletMetricItemsPerLayer">—</div></div>
+            <div class="pallet-metric"><div class="pallet-metric-label">叠放层数</div><div class="pallet-metric-value" id="palletMetricLayers">—</div></div>
+            <div class="pallet-metric"><div class="pallet-metric-label">总数量</div><div class="pallet-metric-value" id="palletMetricTotalCount">—</div></div>
+            <div class="pallet-metric"><div class="pallet-metric-label">平面率</div><div class="pallet-metric-value" id="palletMetricSurfaceRate">—</div></div>
+            <div class="pallet-metric"><div class="pallet-metric-label">满板率</div><div class="pallet-metric-value" id="palletMetricFullRate">—</div></div>
+            <div class="pallet-metric"><div class="pallet-metric-label">带板高度</div><div class="pallet-metric-value" id="palletMetricTotalHeight">—</div></div>
+            <div class="pallet-metric pallet-metric-wide"><div class="pallet-metric-label">台板剩余量（长 / 宽 / 高）</div><div class="pallet-metric-value" id="palletMetricRemaining">—</div></div>
+          </div>
+        </section>
+        <section class="inspector-section">
+          <h4 class="inspector-section-title">视图操作</h4>
+          <ul class="inspector-hint-list">
+            <li><b>左键拖动</b>　稳定环绕</li>
+            <li><b>滚轮</b>　缩放</li>
+            <li><b>右键拖动</b>　平移</li>
+          </ul>
+        </section>
+      </aside>
       <button class="debug-stats-btn" id="copyStatsBtn" hidden>复制性能数据</button>
     </section>
   </main>
@@ -1246,7 +1036,14 @@
     const fill = new THREE.DirectionalLight(0xa8c8ff, LIGHTING_PRESETS.on.fill); fill.position.set(-7, 4, -5); scene.add(fill);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(80,80), new THREE.ShadowMaterial({color:0x38516c, opacity:.13}));
     floor.rotation.x = -Math.PI/2; floor.position.y = -.7; floor.receiveShadow = true; scene.add(floor);
-    const grid = new THREE.GridHelper(36, 36, 0x9fb1c2, 0xcbd6e1); grid.position.y = -.69; grid.material.opacity = .22; grid.material.transparent = true; scene.add(grid);
+    let grid = new THREE.GridHelper(36, 36, 0x9fb1c2, 0xcbd6e1); grid.position.y = -.69; grid.material.opacity = .22; grid.material.transparent = true; scene.add(grid);
+    // 深浅色主题切换：GridHelper 顶点色创建后不可改，按主题重建
+    function rebuildGridForTheme(theme) {
+      const colors = theme === 'dark' ? [0x3d4d66, 0x232f42] : [0x9fb1c2, 0xcbd6e1];
+      const next = new THREE.GridHelper(36, 36, colors[0], colors[1]);
+      next.position.y = -.69; next.material.opacity = .22; next.material.transparent = true;
+      scene.add(next); scene.remove(grid); grid = next;
+    }
 
     // 应用当前光影档位；导出 PNG/PDF 复用同一场景灯光，自动跟随。
     let lightingEffects = true;
@@ -1738,6 +1535,7 @@
     function syncStagePanels() {
       const active = activeWorkflowStage();
       if (ui.palletMetricBoard) ui.palletMetricBoard.hidden = active !== 'pallet';
+      syncInspectorAuto(active);
       document.querySelectorAll('[id^="stagePanel-"]').forEach(panel => {
         panel.hidden = panel.id !== `stagePanel-${active}`;
       });
@@ -6482,7 +6280,84 @@
       renderPocketBayUser();
       populatePresets(); resize(); setPerspectiveInstant();
     }
+    // ===== 深浅色主题 =====
+    const THEME_KEY = 'vida-ui-theme';
+    function applyTheme(theme, persist) {
+      theme = theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = theme;
+      const moon = document.getElementById('themeIconMoon');
+      const sun = document.getElementById('themeIconSun');
+      if (moon) moon.hidden = theme === 'dark';
+      if (sun) sun.hidden = theme !== 'dark';
+      rebuildGridForTheme(theme);
+      if (persist) { try { localStorage.setItem(THEME_KEY, theme); } catch (e) {} }
+    }
+    function currentTheme() {
+      return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    }
+    function initTheme() {
+      let t = null;
+      try { t = localStorage.getItem(THEME_KEY); } catch (e) {}
+      if (t !== 'dark' && t !== 'light') {
+        t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      applyTheme(t, false);
+    }
+
+    // ===== 高频数字输入步进器（排/列/层等）=====
+    const STEPPER_INPUT_SELECTOR = '#rows,#cols,#layers,#outerRows,#outerCols,#outerLayers,#rollBundleX,#rollBundleY,#rollBundleZ';
+    function enhanceNumberSteppers() {
+      document.querySelectorAll(STEPPER_INPUT_SELECTOR).forEach(input => {
+        if (input.type !== 'number' || input.closest('.stepper-group')) return;
+        const group = document.createElement('div');
+        group.className = 'stepper-group';
+        const makeBtn = (label, dir) => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'stepper-btn';
+          b.textContent = dir < 0 ? '−' : '+';
+          b.setAttribute('aria-label', label);
+          b.tabIndex = -1; // 键盘用户直接用方向键微调数字输入，避免 Tab 落点翻倍
+          b.addEventListener('click', () => {
+            const stepSize = Number(input.step) > 0 ? Number(input.step) : 1;
+            const min = input.min === '' ? -Infinity : Number(input.min);
+            const max = input.max === '' ? Infinity : Number(input.max);
+            const nextValue = Math.min(max, Math.max(min, (Number(input.value) || 0) + dir * stepSize));
+            if (Number(input.value) === nextValue) return;
+            input.value = nextValue;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          return b;
+        };
+        input.before(group);
+        const stack = document.createElement('div');
+        stack.className = 'stepper-stack';
+        stack.append(makeBtn('增加', 1), makeBtn('减少', -1)); // 上+下−，与原生 spinner 习惯一致
+        group.append(input, stack);
+      });
+    }
+    // 动态注入的表单字段（外包装编辑器等）自动补挂步进器
+    new MutationObserver(() => enhanceNumberSteppers())
+      .observe(document.body, { childList: true, subtree: true });
+
+    // ===== 右侧检查器抽屉：收纳叠板指标等展示信息 =====
+    // 声明须先于 initApp()：bootstrapUI 可能同步触发 syncStagePanels → syncInspectorAuto
+    const INSPECTOR_KEY = 'vida-ui-inspector';
+    const inspectorEl = $('inspectorPanel');
+    let inspectorTouched = false; // 用户手动开合后，本会话内不再自动干预
+    function setInspector(open) {
+      inspectorEl.classList.toggle('open', open);
+      $('inspectorTab').setAttribute('aria-expanded', String(open));
+    }
+    function syncInspectorAuto(active) {
+      if (inspectorTouched) return;
+      // 叠板工段自动弹出看板；离开工段且用户未主动打开时收回
+      setInspector(active === 'pallet');
+    }
+
     async function initApp() {
+      initTheme();
+      enhanceNumberSteppers();
       bootstrapUI();                                  // 立即可用，不再等网关身份接口
       pocketbayIdentity = await resolvePocketBayIdentity();
       if (pocketbayIdentity) {                        // 身份解析成功：按 user.id 重新加载隔离数据
@@ -6495,6 +6370,16 @@
       }
     }
     initApp();
+    $('themeToggleBtn').addEventListener('click', () => {
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true);
+    });
+    $('inspectorTab').addEventListener('click', () => {
+      inspectorTouched = true;
+      try { localStorage.setItem(INSPECTOR_KEY, inspectorEl.classList.contains('open') ? 'closed' : 'open'); } catch (e) {}
+      setInspector(!inspectorEl.classList.contains('open'));
+    });
+    // 视口操作提示：首次进入 6 秒后淡出（完整说明常驻检查器「视图操作」区）
+    setTimeout(() => document.querySelector('.hint')?.classList.add('hint-faded'), 6000);
     // 防御：PocketBay 注入的启动遮罩/顶部横幅可能拦截交互（横幅自带关闭按钮有 id 不匹配的 bug，关不掉），
     // 加载后强制移除，确保本工具内容始终可选可点。
     function neutralizePbOverlays() {
