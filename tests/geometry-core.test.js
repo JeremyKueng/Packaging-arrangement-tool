@@ -29,11 +29,14 @@ function closeQuat(q, expected, eps = 1e-9) {
   closeVec([q.x, q.y, q.z, q.w], expected, eps);
 }
 
-test('dimsFor 软抽四种朝向', () => {
+test('dimsFor 软抽五种朝向', () => {
   closeVec(dimsFor('softdraw', 'flat', 'z-'), [1.8, 0.56, 1.08]);
   closeVec(dimsFor('softdraw', 'side', 'z-'), [1.8, 1.08, 0.56]);
   closeVec(dimsFor('softdraw', 'side', 'x+'), [0.56, 1.08, 1.8]);
   closeVec(dimsFor('softdraw', 'upright', 'z-'), [0.56, 1.8, 1.08]);
+  // 卧式 = 侧立绕竖直轴转 90°：长边沿 Z（每排包数）、宽 100 竖直、刻线朝横向。
+  closeVec(dimsFor('softdraw', 'lying', 'z-'), [0.56, 1.08, 1.8]);
+  closeVec(dimsFor('softdraw', 'lying', 'x+'), [1.8, 1.08, 0.56]);
 });
 
 test('dimsFor 纸手帕平放/侧放', () => {
@@ -65,6 +68,7 @@ test('dimsFor 自定义尺寸各朝向换算（软抽）', () => {
   closeVec(dimsFor('softdraw', 'side', 'z-', { count: 1 }, override), [2.0, 1.08, 0.56]);
   closeVec(dimsFor('softdraw', 'side', 'x+', { count: 1 }, override), [0.56, 1.08, 2.0]);
   closeVec(dimsFor('softdraw', 'upright', 'z-', { count: 1 }, override), [0.56, 2.0, 1.08]);
+  closeVec(dimsFor('softdraw', 'lying', 'z-', { count: 1 }, override), [0.56, 1.08, 2.0]);
 });
 
 test('dimsFor 自定义卫卷尺寸（含膜包）', () => {
@@ -89,6 +93,7 @@ test('悬挂式底抽提手不计入产品本体高度与排列尺寸', () => {
   closeVec(dimsFor('softdraw','flat','z-',{count:1},null,'cored','hanging-bottom'),[1.8,.56,1.08]);
   closeVec(dimsFor('softdraw','side','z-',{count:1},null,'cored','hanging-bottom'),[1.8,1.08,.56]);
   closeVec(dimsFor('softdraw','upright','z-',{count:1},null,'cored','hanging-bottom'),[.56,1.8,1.08]);
+  closeVec(dimsFor('softdraw','lying','z-',{count:1},null,'cored','hanging-bottom'),[.56,1.08,1.8]);
 });
 
 test('悬挂式底抽侧立十字绕提手面法向旋转整包，平放不受影响', () => {

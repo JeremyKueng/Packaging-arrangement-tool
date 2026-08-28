@@ -81,7 +81,7 @@ test('领域枚举常量非空且无重复', () => {
 });
 
 test('PRODUCT_ORIENTATIONS 由各品类朝向去重派生', () => {
-  assert.deepEqual(PRODUCT_ORIENTATIONS, ['flat', 'side', 'upright', 'horizontal', 'lying']);
+  assert.deepEqual(PRODUCT_ORIENTATIONS, ['flat', 'side', 'lying', 'upright', 'horizontal']);
 });
 
 test('小粒尺寸：默认 mm 与相对尺寸按 0.01 系数一致', () => {

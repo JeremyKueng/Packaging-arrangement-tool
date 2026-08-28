@@ -88,13 +88,17 @@ export function productOrientationQuaternion(
   if (type === 'softdraw') {
     if (orientation === 'upright') {
       quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
-    } else if (orientation === 'side') {
+    } else if (orientation === 'side' || orientation === 'lying') {
       const sign = nativeHandleSide.endsWith('-') ? -1 : 1;
       const alongX = nativeHandleSide.startsWith('x');
       const basisX = alongX ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
       const basisY = alongX ? new THREE.Vector3(sign, 0, 0) : new THREE.Vector3(0, 0, sign);
       const basisZ = alongX ? new THREE.Vector3(0, sign, 0) : new THREE.Vector3(0, -sign, 0);
       quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basisX, basisY, basisZ));
+      if (orientation === 'lying') {
+        // 卧式 = 侧立姿态再绕世界竖直轴旋转 90°：长边改沿 Z 列向、开口刻线朝横向（不朝提手）。
+        quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));
+      }
       if (softdrawVariant === 'hanging-bottom' && hangingSideDirection === 'cross') {
         // 与 makeSoftdraw 的 group.rotateY(PI/2) 等价：绕产品局部 Y（提手面法向）旋转。
         quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));

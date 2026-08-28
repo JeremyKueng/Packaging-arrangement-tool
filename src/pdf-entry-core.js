@@ -15,7 +15,7 @@ const PRODUCT_UNIT = { handkerchief: '包', softdraw: '包', roll: '卷' };
 
 const ORIENTATION_LABELS = {
   handkerchief: { flat: '平放，正面朝上', side: '侧放，侧封面朝外' },
-  softdraw: { flat: '平放，抽取口朝上', side: '侧立，抽取口朝中包提手方向', upright: '直立，小端面向下' },
+  softdraw: { flat: '平放，抽取口朝上', side: '侧立，抽取口朝中包提手方向', upright: '直立，小端面向下', lying: '卧式，抽取口朝侧向水平' },
   roll: { upright: '立式摆放，裁切面朝上', horizontal: '横式摆放，卷轴保持水平', lying: '卧式摆放，裁切面朝侧向' },
 };
 
